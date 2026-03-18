@@ -13,7 +13,7 @@ Build an NRI plugin that sandboxes Kubernetes container commands using nono/Land
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: NRI Foundation** - Plugin skeleton that connects to CRI-O, filters containers by RuntimeClass, resolves nono profiles, and logs decisions — no injection yet (completed 2026-03-18)
-- [ ] **Phase 2: Command Wrapping** - SetArgs() injection prepends `nono wrap` to container process.args, bind-mounts the nono binary, and manages per-container host-side state
+- [x] **Phase 2: Command Wrapping** - SetArgs() injection prepends `nono wrap` to container process.args, bind-mounts the nono binary, and manages per-container host-side state (completed 2026-03-18)
 - [ ] **Phase 3: Deployment** - DaemonSet with init container, CRI-O nri_plugin_dir compatibility, and end-to-end validation on a real test cluster
 
 ## Phase Details
@@ -44,7 +44,7 @@ Plans:
   2. The nono binary is accessible inside the container at the expected container-internal path — observable by running `ls` at that path from inside the container
   3. Per-container state directory exists under `/var/run/nono-nri/{podID}/{containerID}/` while the container is running and is removed after the container is deleted — observable on the host node filesystem
   4. Containers not in the designated RuntimeClass start normally with unmodified process.args — confirming the opt-in gate holds under Phase 2 injection code
-**Plans:** 1/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [ ] 02-01-PLAN.md — BuildAdjustment (SetArgs + AddMount) and state management (WriteMetadata/RemoveMetadata) with full unit tests
@@ -52,7 +52,7 @@ Plans:
 - [ ] 02-03-PLAN.md — End-to-end injection lifecycle integration test + full suite gate with race detector
 
 ### Phase 3: Deployment
-**Goal**: The nono-nri plugin deploys to a test Kubernetes cluster via DaemonSet and sandboxes containers end-to-end using both runc and Kata runtimes
+**Goal**: The nono-nri plugin deploys to a test Kubernetes cluster via DaemonSet and sandboxes containers end-to-end
 **Depends on**: Phase 2
 **Requirements**: DEPL-01, DEPL-02, DEPL-03
 **Success Criteria** (what must be TRUE):
@@ -60,7 +60,12 @@ Plans:
   2. A test pod using the sandboxed RuntimeClass starts successfully and its entrypoint runs under Landlock — observable by the nono process appearing in container process tree and sandboxing taking effect on filesystem access
   3. The nono binary is present on the host at the expected hostPath after DaemonSet init container runs — observable via `ls` on the node or via `kubectl exec` on the DaemonSet pod
   4. Plugin binary placed in CRI-O's nri_plugin_dir with the two-digit index prefix is auto-started by CRI-O without requiring DaemonSet registration — observable in CRI-O logs showing plugin connected
-**Plans**: TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Kubernetes manifests (DaemonSet, RuntimeClass, test pod) + runtime config snippets (CRI-O, containerd) + example TOML
+- [ ] 03-02-PLAN.md — Dockerfile (multi-stage build) + Makefile docker-build and docker-load-kind targets
+- [ ] 03-03-PLAN.md — Kind cluster config, end-to-end deploy script, and quickstart README
 
 ## Progress
 
@@ -70,5 +75,5 @@ Phases execute in numeric order: 1 → 2 → 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. NRI Foundation | 3/3 | Complete   | 2026-03-18 |
-| 2. Command Wrapping | 1/3 | In Progress|  |
-| 3. Deployment | 0/? | Not started | - |
+| 2. Command Wrapping | 3/3 | Complete   | 2026-03-18 |
+| 3. Deployment | 0/3 | Planning complete | - |
