@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"os"
 
 	api "github.com/containerd/nri/pkg/api"
 	. "github.com/onsi/ginkgo/v2"
@@ -31,11 +32,26 @@ func newBufLogger(buf *bytes.Buffer) *slog.Logger {
 }
 
 var _ = Describe("Plugin", func() {
+	var tmpDir string
+
+	BeforeEach(func() {
+		var err error
+		tmpDir, err = os.MkdirTemp("", "nono-state-*")
+		Expect(err).To(BeNil())
+		nri.SetStateBaseDir(tmpDir)
+	})
+
+	AfterEach(func() {
+		nri.ResetStateBaseDir()
+		os.RemoveAll(tmpDir)
+	})
+
 	Describe("CreateContainer", func() {
 		It("logs skip with all required fields for non-matching container", func() {
 			cfg := &nri.Config{
 				RuntimeClasses: []string{"nono-runc"},
 				DefaultProfile: "default",
+				NonoBinPath:    "/host/nono",
 			}
 			buf := &bytes.Buffer{}
 			p := nri.NewPlugin(cfg, newBufLogger(buf))
@@ -64,10 +80,11 @@ var _ = Describe("Plugin", func() {
 			Expect(entry.Reason).NotTo(BeEmpty())
 		})
 
-		It("logs injection-pending with all required fields for matching container", func() {
+		It("returns ContainerAdjustment and logs injected for matching container", func() {
 			cfg := &nri.Config{
 				RuntimeClasses: []string{"nono-runc"},
 				DefaultProfile: "default",
+				NonoBinPath:    "/host/nono",
 			}
 			buf := &bytes.Buffer{}
 			p := nri.NewPlugin(cfg, newBufLogger(buf))
@@ -82,12 +99,17 @@ var _ = Describe("Plugin", func() {
 
 			adj, updates, err := p.CreateContainer(context.Background(), pod, ctr)
 			Expect(err).To(BeNil())
-			Expect(adj).To(BeNil())
+			Expect(adj).NotTo(BeNil())
 			Expect(updates).To(BeNil())
+
+			// Container has no args, so adj.Args = prefix only (5 elements)
+			Expect(adj.Args).To(HaveLen(5))
+			Expect(adj.Args[0]).To(Equal(nri.ContainerNonoPath))
+			Expect(adj.Mounts).To(HaveLen(1))
 
 			var entry logEntry
 			Expect(json.Unmarshal(buf.Bytes(), &entry)).To(Succeed())
-			Expect(entry.Msg).To(Equal("injection-pending"))
+			Expect(entry.Msg).To(Equal("injected"))
 			Expect(entry.Decision).To(Equal("inject"))
 			Expect(entry.ContainerID).To(Equal("ctr-456"))
 			Expect(entry.Namespace).To(Equal("prod"))
@@ -96,10 +118,11 @@ var _ = Describe("Plugin", func() {
 			Expect(entry.RuntimeHandler).To(Equal("nono-runc"))
 		})
 
-		It("returns nil ContainerAdjustment (no-op)", func() {
+		It("returns non-nil ContainerAdjustment with correct mount destination", func() {
 			cfg := &nri.Config{
 				RuntimeClasses: []string{"nono-runc"},
 				DefaultProfile: "default",
+				NonoBinPath:    "/host/nono",
 			}
 			buf := &bytes.Buffer{}
 			p := nri.NewPlugin(cfg, newBufLogger(buf))
@@ -113,13 +136,16 @@ var _ = Describe("Plugin", func() {
 			ctr := &api.Container{Id: "ctr-789"}
 
 			adj, _, _ := p.CreateContainer(context.Background(), pod, ctr)
-			Expect(adj).To(BeNil())
+			Expect(adj).NotTo(BeNil())
+			Expect(adj.Mounts).To(HaveLen(1))
+			Expect(adj.Mounts[0].Destination).To(Equal(nri.ContainerNonoPath))
 		})
 
 		It("uses default profile when annotation absent", func() {
 			cfg := &nri.Config{
 				RuntimeClasses: []string{"nono-runc"},
 				DefaultProfile: "fallback",
+				NonoBinPath:    "/host/nono",
 			}
 			buf := &bytes.Buffer{}
 			p := nri.NewPlugin(cfg, newBufLogger(buf))
@@ -138,6 +164,7 @@ var _ = Describe("Plugin", func() {
 			var entry logEntry
 			Expect(json.Unmarshal(buf.Bytes(), &entry)).To(Succeed())
 			Expect(entry.Profile).To(Equal("fallback"))
+			Expect(entry.Msg).To(Equal("injected"))
 		})
 	})
 

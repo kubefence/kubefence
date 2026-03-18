@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 
 	api "github.com/containerd/nri/pkg/api"
@@ -28,11 +30,26 @@ type integrationLogEntry struct {
 }
 
 var _ = Describe("Integration", func() {
+	var tmpDir string
+
+	BeforeEach(func() {
+		var err error
+		tmpDir, err = os.MkdirTemp("", "nono-state-*")
+		Expect(err).To(BeNil())
+		nri.SetStateBaseDir(tmpDir)
+	})
+
+	AfterEach(func() {
+		nri.ResetStateBaseDir()
+		os.RemoveAll(tmpDir)
+	})
+
 	Context("Full CreateContainer flow for matching pod", func() {
-		It("logs injection-pending with all required CORE-04 fields", func() {
+		It("returns non-nil ContainerAdjustment and logs injected with all required CORE-04 fields", func() {
 			cfg := &nri.Config{
 				RuntimeClasses: []string{"nono-runc", "nono-kata"},
 				DefaultProfile: "default",
+				NonoBinPath:    "/host/nono",
 			}
 			buf := &bytes.Buffer{}
 			p := nri.NewPlugin(cfg, newBufLogger(buf))
@@ -47,12 +64,15 @@ var _ = Describe("Integration", func() {
 
 			adj, updates, err := p.CreateContainer(context.Background(), pod, ctr)
 			Expect(err).To(BeNil())
-			Expect(adj).To(BeNil())
+			Expect(adj).NotTo(BeNil())
 			Expect(updates).To(BeNil())
+
+			Expect(adj.Args[0]).To(Equal("/nono/nono"))
+			Expect(adj.Mounts).To(HaveLen(1))
 
 			var entry integrationLogEntry
 			Expect(json.Unmarshal(buf.Bytes(), &entry)).To(Succeed())
-			Expect(entry.Msg).To(Equal("injection-pending"))
+			Expect(entry.Msg).To(Equal("injected"))
 			Expect(entry.Decision).To(Equal("inject"))
 			Expect(entry.ContainerID).To(Equal("container-789"))
 			Expect(entry.Namespace).To(Equal("production"))
@@ -69,6 +89,7 @@ var _ = Describe("Integration", func() {
 			cfg := &nri.Config{
 				RuntimeClasses: []string{"nono-runc", "nono-kata"},
 				DefaultProfile: "default",
+				NonoBinPath:    "/host/nono",
 			}
 			buf := &bytes.Buffer{}
 			p := nri.NewPlugin(cfg, newBufLogger(buf))
@@ -102,6 +123,7 @@ var _ = Describe("Integration", func() {
 			cfg := &nri.Config{
 				RuntimeClasses: []string{"nono-runc", "nono-kata"},
 				DefaultProfile: "permissive",
+				NonoBinPath:    "/host/nono",
 			}
 			buf := &bytes.Buffer{}
 			p := nri.NewPlugin(cfg, newBufLogger(buf))
@@ -120,6 +142,7 @@ var _ = Describe("Integration", func() {
 			var entry integrationLogEntry
 			Expect(json.Unmarshal(buf.Bytes(), &entry)).To(Succeed())
 			Expect(entry.Profile).To(Equal("permissive"))
+			Expect(entry.Msg).To(Equal("injected"))
 		})
 	})
 
@@ -128,6 +151,7 @@ var _ = Describe("Integration", func() {
 			cfg := &nri.Config{
 				RuntimeClasses: []string{"nono-runc"},
 				DefaultProfile: "default",
+				NonoBinPath:    "/host/nono",
 			}
 			buf := &bytes.Buffer{}
 			p := nri.NewPlugin(cfg, newBufLogger(buf))
@@ -157,12 +181,17 @@ var _ = Describe("Integration", func() {
 			ctr2 := &api.Container{Id: "container-seq-2"}
 			ctr3 := &api.Container{Id: "container-seq-3"}
 
-			_, _, err := p.CreateContainer(context.Background(), matchingPod1, ctr1)
+			adj1, _, err := p.CreateContainer(context.Background(), matchingPod1, ctr1)
 			Expect(err).To(BeNil())
-			_, _, err = p.CreateContainer(context.Background(), matchingPod2, ctr2)
+			Expect(adj1).NotTo(BeNil())
+
+			adj2, _, err := p.CreateContainer(context.Background(), matchingPod2, ctr2)
 			Expect(err).To(BeNil())
-			_, _, err = p.CreateContainer(context.Background(), nonMatchingPod, ctr3)
+			Expect(adj2).NotTo(BeNil())
+
+			adj3, _, err := p.CreateContainer(context.Background(), nonMatchingPod, ctr3)
 			Expect(err).To(BeNil())
+			Expect(adj3).To(BeNil())
 
 			// Parse all 3 log lines
 			lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
@@ -229,6 +258,45 @@ var _ = Describe("Integration", func() {
 			updates, err := p.RemoveContainer(context.Background(), pod, ctr)
 			Expect(err).To(BeNil())
 			Expect(updates).To(BeNil())
+		})
+	})
+
+	Context("RemoveContainer cleans up state dir", func() {
+		It("removes state directory after CreateContainer wrote it", func() {
+			cfg := &nri.Config{
+				RuntimeClasses: []string{"nono-runc"},
+				DefaultProfile: "default",
+				NonoBinPath:    "/host/nono",
+			}
+			buf := &bytes.Buffer{}
+			p := nri.NewPlugin(cfg, newBufLogger(buf))
+
+			pod := &api.PodSandbox{
+				RuntimeHandler: "nono-runc",
+				Namespace:      "default",
+				Name:           "state-test-pod",
+				Uid:            "pod-uid-abc",
+				Annotations:    map[string]string{},
+			}
+			ctr := &api.Container{Id: "ctr-state-1"}
+
+			// CreateContainer should write state
+			adj, _, err := p.CreateContainer(context.Background(), pod, ctr)
+			Expect(err).To(BeNil())
+			Expect(adj).NotTo(BeNil())
+
+			// Verify state directory was created
+			stateDir := filepath.Join(tmpDir, "pod-uid-abc", "ctr-state-1")
+			_, statErr := os.Stat(stateDir)
+			Expect(statErr).To(BeNil())
+
+			// RemoveContainer should clean up state
+			_, err = p.RemoveContainer(context.Background(), pod, ctr)
+			Expect(err).To(BeNil())
+
+			// Verify state directory is removed
+			_, statErr = os.Stat(stateDir)
+			Expect(os.IsNotExist(statErr)).To(BeTrue())
 		})
 	})
 })
