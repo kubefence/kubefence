@@ -24,7 +24,8 @@ func NewPlugin(cfg *Config, logger *slog.Logger) *Plugin {
 // CreateContainer is called by the NRI runtime before each container is created.
 // It resolves the nono profile for the pod, checks whether the container should
 // be sandboxed, and logs the resulting decision with all CORE-04 fields.
-// Phase 1 is a no-op: it always returns a nil ContainerAdjustment.
+// For sandboxed containers it returns a ContainerAdjustment that prepends the
+// nono wrapper command and bind-mounts the nono binary into the container.
 func (p *Plugin) CreateContainer(
 	ctx context.Context,
 	pod *api.PodSandbox,
@@ -39,7 +40,7 @@ func (p *Plugin) CreateContainer(
 	if !ShouldSandbox(pod, p.Config) {
 		p.Log.Info("skip",
 			"decision", "skip",
-			"reason", SkipReason(pod, p.Config),
+			"reason", SkipReason(pod),
 			"container_id", ctrID,
 			"namespace", namespace,
 			"pod", podName,
@@ -49,7 +50,11 @@ func (p *Plugin) CreateContainer(
 		return nil, nil, nil
 	}
 
-	p.Log.Info("injection-pending",
+	adj := BuildAdjustment(ctr, profile, p.Config.NonoBinPath)
+	if err := WriteMetadata(pod.GetUid(), ctrID, podName, namespace, profile); err != nil {
+		p.Log.Warn("failed to write state metadata", "container_id", ctrID, "error", err)
+	}
+	p.Log.Info("injected",
 		"decision", "inject",
 		"container_id", ctrID,
 		"namespace", namespace,
@@ -57,11 +62,12 @@ func (p *Plugin) CreateContainer(
 		"profile", profile,
 		"runtime_handler", handler,
 	)
-	return nil, nil, nil
+	return adj, nil, nil
 }
 
 // RemoveContainer is called by the NRI runtime after a container is removed.
-// It logs the removal event at debug level and returns no updates.
+// It logs the removal event at debug level, cleans up the container's state
+// directory, and returns no updates.
 func (p *Plugin) RemoveContainer(
 	ctx context.Context,
 	pod *api.PodSandbox,
@@ -72,5 +78,8 @@ func (p *Plugin) RemoveContainer(
 		"pod", pod.GetName(),
 		"namespace", pod.GetNamespace(),
 	)
+	if err := RemoveMetadata(pod.GetUid(), ctr.GetId()); err != nil {
+		p.Log.Warn("failed to remove state metadata", "container_id", ctr.GetId(), "error", err)
+	}
 	return nil, nil
 }

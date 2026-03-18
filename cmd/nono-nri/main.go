@@ -31,6 +31,10 @@ func run() error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
+	if _, err := os.Stat(cfg.NonoBinPath); err != nil {
+		return fmt.Errorf("nono binary not found at %s: %w", cfg.NonoBinPath, err)
+	}
+
 	logger := applog.New(jsonMode)
 
 	p := nri.NewPlugin(cfg, logger)
