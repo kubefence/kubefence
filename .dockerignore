@@ -1,0 +1,7 @@
+.planning/
+.git/
+*.md
+!go.mod
+!go.sum
+deploy/
+10-nono-nri
