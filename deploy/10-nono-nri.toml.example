@@ -1,0 +1,20 @@
+# nono-nri plugin configuration
+# Install as: /etc/nri/conf.d/10-nono-nri.toml
+#
+# runtime_classes: list of RuntimeClass metadata.name values to intercept.
+#   Pods with runtimeClassName matching any entry get nono injection.
+#   All other pods are skipped (no-op).
+#
+# default_profile: nono profile used when pod lacks nono.sh/profile annotation.
+#
+# nono_bin_path: absolute path to the nono binary on the HOST node.
+#   The DaemonSet init container copies nono here from the image.
+#   This path is bind-mounted into sandboxed containers.
+#
+# socket_path: NRI socket path. Empty string uses the NRI default
+#   (/var/run/nri/nri.sock).
+
+runtime_classes = ["nono-sandbox"]
+default_profile = "default"
+nono_bin_path = "/opt/nono-nri/nono"
+socket_path = ""

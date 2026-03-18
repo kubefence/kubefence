@@ -1,0 +1,17 @@
+# Containerd NRI configuration for nono-nri plugin
+# Merge into: /etc/containerd/config.toml
+#
+# IMPORTANT: The key MUST include the trailing ".nri" suffix.
+# Using [plugins."io.containerd.nri.v1"] (without .nri) silently fails.
+#
+# containerd 2.x has NRI enabled by default; this block customizes paths.
+# containerd 1.7.x requires this block to enable NRI.
+
+[plugins."io.containerd.nri.v1.nri"]
+  disable = false
+  disable_connections = false
+  plugin_config_path = "/etc/nri/conf.d"
+  plugin_path = "/opt/nri/plugins"
+  plugin_registration_timeout = "5s"
+  plugin_request_timeout = "2s"
+  socket_path = "/var/run/nri/nri.sock"
