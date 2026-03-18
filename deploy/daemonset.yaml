@@ -50,7 +50,7 @@ spec:
         - name: nri-socket
           hostPath:
             path: /var/run/nri
-            type: Directory
+            type: DirectoryOrCreate
         - name: nono-host-dir
           hostPath:
             path: /opt/nono-nri
