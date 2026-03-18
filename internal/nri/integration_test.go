@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -298,5 +299,184 @@ var _ = Describe("Integration", func() {
 			_, statErr = os.Stat(stateDir)
 			Expect(os.IsNotExist(statErr)).To(BeTrue())
 		})
+	})
+})
+
+var _ = Describe("End-to-end injection lifecycle", func() {
+	var tmpDir string
+
+	BeforeEach(func() {
+		var err error
+		tmpDir, err = os.MkdirTemp("", "nono-e2e-*")
+		Expect(err).To(BeNil())
+		nri.SetStateBaseDir(tmpDir)
+	})
+
+	AfterEach(func() {
+		nri.ResetStateBaseDir()
+		os.RemoveAll(tmpDir)
+	})
+
+	It("full lifecycle for a sandboxed container", func() {
+		cfg := &nri.Config{
+			RuntimeClasses: []string{"nono-runc"},
+			DefaultProfile: "default",
+			NonoBinPath:    "/host/bin/nono",
+		}
+		buf := &bytes.Buffer{}
+		p := nri.NewPlugin(cfg, newBufLogger(buf))
+
+		pod := &api.PodSandbox{
+			RuntimeHandler: "nono-runc",
+			Namespace:      "prod",
+			Name:           "app-pod",
+			Uid:            "pod-uid-e2e",
+			Annotations:    map[string]string{"nono.sh/profile": "strict"},
+		}
+		ctr := &api.Container{
+			Id:   "ctr-e2e-1",
+			Args: []string{"python", "app.py", "--port", "8080"},
+		}
+
+		adj, updates, err := p.CreateContainer(context.Background(), pod, ctr)
+		Expect(err).To(BeNil())
+		Expect(updates).To(BeNil())
+		Expect(adj).NotTo(BeNil())
+
+		// Verify args are fully wrapped
+		Expect(adj.Args).To(Equal([]string{
+			"/nono/nono", "wrap", "--profile", "strict", "--",
+			"python", "app.py", "--port", "8080",
+		}))
+
+		// Verify mount is present and correct
+		Expect(adj.Mounts).To(HaveLen(1))
+		Expect(adj.Mounts[0].Source).To(Equal("/host/bin/nono"))
+		Expect(adj.Mounts[0].Destination).To(Equal("/nono/nono"))
+		Expect(adj.Mounts[0].Type).To(Equal("bind"))
+		Expect(adj.Mounts[0].Options).To(ContainElements("bind", "ro", "rprivate"))
+
+		// Verify metadata.json was written
+		metaPath := filepath.Join(tmpDir, "pod-uid-e2e", "ctr-e2e-1", "metadata.json")
+		_, statErr := os.Stat(metaPath)
+		Expect(statErr).To(BeNil())
+
+		// Read and unmarshal metadata
+		data, readErr := os.ReadFile(metaPath)
+		Expect(readErr).To(BeNil())
+		var meta nri.ContainerMetadata
+		Expect(json.Unmarshal(data, &meta)).To(Succeed())
+		Expect(meta.ContainerID).To(Equal("ctr-e2e-1"))
+		Expect(meta.Pod).To(Equal("app-pod"))
+		Expect(meta.Namespace).To(Equal("prod"))
+		Expect(meta.Profile).To(Equal("strict"))
+		Expect(meta.Timestamp).NotTo(BeEmpty())
+
+		// Verify log output contains "injected" and required CORE-04 fields
+		var logEntry integrationLogEntry
+		Expect(json.Unmarshal(buf.Bytes(), &logEntry)).To(Succeed())
+		Expect(logEntry.Msg).To(Equal("injected"))
+		Expect(logEntry.ContainerID).To(Equal("ctr-e2e-1"))
+
+		// RemoveContainer should clean up state dir
+		_, err = p.RemoveContainer(context.Background(), pod, ctr)
+		Expect(err).To(BeNil())
+
+		// Container dir should be gone
+		ctrDir := filepath.Join(tmpDir, "pod-uid-e2e", "ctr-e2e-1")
+		_, statErr = os.Stat(ctrDir)
+		Expect(errors.Is(statErr, os.ErrNotExist)).To(BeTrue())
+
+		// Pod dir should also be gone (was the only container)
+		podDir := filepath.Join(tmpDir, "pod-uid-e2e")
+		_, statErr = os.Stat(podDir)
+		Expect(errors.Is(statErr, os.ErrNotExist)).To(BeTrue())
+	})
+
+	It("non-sandboxed container is completely untouched", func() {
+		cfg := &nri.Config{
+			RuntimeClasses: []string{"nono-runc"},
+			DefaultProfile: "default",
+			NonoBinPath:    "/host/bin/nono",
+		}
+		buf := &bytes.Buffer{}
+		p := nri.NewPlugin(cfg, newBufLogger(buf))
+
+		podUID := "pod-uid-skip-1"
+		pod := &api.PodSandbox{
+			RuntimeHandler: "runc", // not in RuntimeClasses
+			Namespace:      "kube-system",
+			Name:           "coredns-skip",
+			Uid:            podUID,
+			Annotations:    map[string]string{},
+		}
+		ctr := &api.Container{Id: "ctr-skip-1"}
+
+		adj, updates, err := p.CreateContainer(context.Background(), pod, ctr)
+		Expect(err).To(BeNil())
+		Expect(adj).To(BeNil())
+		Expect(updates).To(BeNil())
+
+		// No state dir should have been created
+		_, statErr := os.Stat(filepath.Join(tmpDir, podUID))
+		Expect(errors.Is(statErr, os.ErrNotExist)).To(BeTrue())
+
+		// Log should contain "skip"
+		var logEntry integrationLogEntry
+		Expect(json.Unmarshal(buf.Bytes(), &logEntry)).To(Succeed())
+		Expect(logEntry.Msg).To(Equal("skip"))
+	})
+
+	It("multiple containers across pods with mixed injection", func() {
+		cfg := &nri.Config{
+			RuntimeClasses: []string{"nono-runc"},
+			DefaultProfile: "default",
+			NonoBinPath:    "/host/bin/nono",
+		}
+		buf := &bytes.Buffer{}
+		p := nri.NewPlugin(cfg, newBufLogger(buf))
+
+		matchingPod := &api.PodSandbox{
+			RuntimeHandler: "nono-runc",
+			Namespace:      "prod",
+			Name:           "matching-pod",
+			Uid:            "pod-uid-match",
+			Annotations:    map[string]string{},
+		}
+		nonMatchingPod := &api.PodSandbox{
+			RuntimeHandler: "runc",
+			Namespace:      "kube-system",
+			Name:           "non-matching-pod",
+			Uid:            "pod-uid-nomatch",
+			Annotations:    map[string]string{},
+		}
+
+		matchingCtr := &api.Container{Id: "ctr-match-1"}
+		nonMatchingCtr := &api.Container{Id: "ctr-nomatch-1"}
+
+		// CreateContainer for matching: adj non-nil, state written
+		adj1, _, err := p.CreateContainer(context.Background(), matchingPod, matchingCtr)
+		Expect(err).To(BeNil())
+		Expect(adj1).NotTo(BeNil())
+		matchStateDir := filepath.Join(tmpDir, "pod-uid-match", "ctr-match-1")
+		_, statErr := os.Stat(matchStateDir)
+		Expect(statErr).To(BeNil())
+
+		// CreateContainer for non-matching: adj nil, no state
+		adj2, _, err := p.CreateContainer(context.Background(), nonMatchingPod, nonMatchingCtr)
+		Expect(err).To(BeNil())
+		Expect(adj2).To(BeNil())
+		_, statErr = os.Stat(filepath.Join(tmpDir, "pod-uid-nomatch"))
+		Expect(errors.Is(statErr, os.ErrNotExist)).To(BeTrue())
+
+		// RemoveContainer for matching: state cleaned
+		_, err = p.RemoveContainer(context.Background(), matchingPod, matchingCtr)
+		Expect(err).To(BeNil())
+		_, statErr = os.Stat(matchStateDir)
+		Expect(errors.Is(statErr, os.ErrNotExist)).To(BeTrue())
+
+		// RemoveContainer for non-matching: no error (RemoveMetadata is safe on non-existent paths)
+		_, err = p.RemoveContainer(context.Background(), nonMatchingPod, nonMatchingCtr)
+		Expect(err).To(BeNil())
 	})
 })
