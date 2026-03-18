@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"log/slog"
 	"os"
 
 	api "github.com/containerd/nri/pkg/api"
@@ -14,30 +13,13 @@ import (
 	nri "github.com/k8s-nono/nono-nri/internal/nri"
 )
 
-// logEntry is used to parse structured JSON log output from the plugin.
-type logEntry struct {
-	Msg            string `json:"msg"`
-	Decision       string `json:"decision"`
-	ContainerID    string `json:"container_id"`
-	Namespace      string `json:"namespace"`
-	Pod            string `json:"pod"`
-	Profile        string `json:"profile"`
-	RuntimeHandler string `json:"runtime_handler"`
-	Reason         string `json:"reason"`
-}
-
-// newBufLogger creates a JSON slog.Logger that writes to the returned buffer.
-func newBufLogger(buf *bytes.Buffer) *slog.Logger {
-	return slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-}
-
 var _ = Describe("Plugin", func() {
 	var tmpDir string
 
 	BeforeEach(func() {
 		var err error
 		tmpDir, err = os.MkdirTemp("", "nono-state-*")
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 		nri.SetStateBaseDir(tmpDir)
 	})
 
@@ -65,7 +47,7 @@ var _ = Describe("Plugin", func() {
 			ctr := &api.Container{Id: "ctr-123"}
 
 			adj, updates, err := p.CreateContainer(context.Background(), pod, ctr)
-			Expect(err).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
 			Expect(adj).To(BeNil())
 			Expect(updates).To(BeNil())
 
@@ -98,7 +80,7 @@ var _ = Describe("Plugin", func() {
 			ctr := &api.Container{Id: "ctr-456"}
 
 			adj, updates, err := p.CreateContainer(context.Background(), pod, ctr)
-			Expect(err).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
 			Expect(adj).NotTo(BeNil())
 			Expect(updates).To(BeNil())
 
@@ -159,7 +141,7 @@ var _ = Describe("Plugin", func() {
 			ctr := &api.Container{Id: "ctr-000"}
 
 			_, _, err := p.CreateContainer(context.Background(), pod, ctr)
-			Expect(err).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
 
 			var entry logEntry
 			Expect(json.Unmarshal(buf.Bytes(), &entry)).To(Succeed())
@@ -183,9 +165,8 @@ var _ = Describe("Plugin", func() {
 			}
 			ctr := &api.Container{Id: "ctr-rem"}
 
-			updates, err := p.RemoveContainer(context.Background(), pod, ctr)
-			Expect(err).To(BeNil())
-			Expect(updates).To(BeNil())
+			err := p.RemoveContainer(context.Background(), pod, ctr)
+			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 })

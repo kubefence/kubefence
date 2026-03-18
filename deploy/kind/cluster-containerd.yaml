@@ -1,0 +1,16 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.35.2
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.nri.v1.nri"]
+      disable = false
+      socket_path = "/var/run/nri/nri.sock"
+      plugin_path = "/opt/nri/plugins"
+      plugin_config_path = "/etc/nri/conf.d"
+      plugin_registration_timeout = "5s"
+      plugin_request_timeout = "2s"
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nono-runc]
+      runtime_type = "io.containerd.runc.v2"

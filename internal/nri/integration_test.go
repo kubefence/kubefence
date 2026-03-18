@@ -16,27 +16,13 @@ import (
 	nri "github.com/k8s-nono/nono-nri/internal/nri"
 )
 
-// integrationLogEntry is used to parse structured JSON log output in integration tests.
-type integrationLogEntry struct {
-	Time           string `json:"time"`
-	Level          string `json:"level"`
-	Msg            string `json:"msg"`
-	Decision       string `json:"decision"`
-	Reason         string `json:"reason"`
-	ContainerID    string `json:"container_id"`
-	Namespace      string `json:"namespace"`
-	Pod            string `json:"pod"`
-	Profile        string `json:"profile"`
-	RuntimeHandler string `json:"runtime_handler"`
-}
-
 var _ = Describe("Integration", func() {
 	var tmpDir string
 
 	BeforeEach(func() {
 		var err error
 		tmpDir, err = os.MkdirTemp("", "nono-state-*")
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 		nri.SetStateBaseDir(tmpDir)
 	})
 
@@ -64,14 +50,14 @@ var _ = Describe("Integration", func() {
 			ctr := &api.Container{Id: "container-789"}
 
 			adj, updates, err := p.CreateContainer(context.Background(), pod, ctr)
-			Expect(err).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
 			Expect(adj).NotTo(BeNil())
 			Expect(updates).To(BeNil())
 
 			Expect(adj.Args[0]).To(Equal("/nono/nono"))
 			Expect(adj.Mounts).To(HaveLen(1))
 
-			var entry integrationLogEntry
+			var entry logEntry
 			Expect(json.Unmarshal(buf.Bytes(), &entry)).To(Succeed())
 			Expect(entry.Msg).To(Equal("injected"))
 			Expect(entry.Decision).To(Equal("inject"))
@@ -104,10 +90,10 @@ var _ = Describe("Integration", func() {
 			ctr := &api.Container{Id: "container-456"}
 
 			adj, _, err := p.CreateContainer(context.Background(), pod, ctr)
-			Expect(err).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
 			Expect(adj).To(BeNil())
 
-			var entry integrationLogEntry
+			var entry logEntry
 			Expect(json.Unmarshal(buf.Bytes(), &entry)).To(Succeed())
 			Expect(entry.Msg).To(Equal("skip"))
 			Expect(entry.Decision).To(Equal("skip"))
@@ -138,9 +124,9 @@ var _ = Describe("Integration", func() {
 			ctr := &api.Container{Id: "container-111"}
 
 			_, _, err := p.CreateContainer(context.Background(), pod, ctr)
-			Expect(err).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
 
-			var entry integrationLogEntry
+			var entry logEntry
 			Expect(json.Unmarshal(buf.Bytes(), &entry)).To(Succeed())
 			Expect(entry.Profile).To(Equal("permissive"))
 			Expect(entry.Msg).To(Equal("injected"))
@@ -183,15 +169,15 @@ var _ = Describe("Integration", func() {
 			ctr3 := &api.Container{Id: "container-seq-3"}
 
 			adj1, _, err := p.CreateContainer(context.Background(), matchingPod1, ctr1)
-			Expect(err).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
 			Expect(adj1).NotTo(BeNil())
 
 			adj2, _, err := p.CreateContainer(context.Background(), matchingPod2, ctr2)
-			Expect(err).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
 			Expect(adj2).NotTo(BeNil())
 
 			adj3, _, err := p.CreateContainer(context.Background(), nonMatchingPod, ctr3)
-			Expect(err).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
 			Expect(adj3).To(BeNil())
 
 			// Parse all 3 log lines
@@ -203,7 +189,7 @@ var _ = Describe("Integration", func() {
 			containerIDs := map[string]bool{}
 
 			for _, line := range lines {
-				var entry integrationLogEntry
+				var entry logEntry
 				Expect(json.Unmarshal([]byte(line), &entry)).To(Succeed())
 				switch entry.Decision {
 				case "inject":
@@ -226,7 +212,7 @@ var _ = Describe("Integration", func() {
 		It("returns nil on current kernel (expected >= 5.13)", func() {
 			nri.ResetKernelVersionFunc()
 			err := nri.CheckKernel()
-			Expect(err).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
 		})
 
 		It("returns error when version function reports old kernel", func() {
@@ -234,7 +220,7 @@ var _ = Describe("Integration", func() {
 			defer nri.ResetKernelVersionFunc()
 
 			err := nri.CheckKernel()
-			Expect(err).NotTo(BeNil())
+			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("too old"))
 			Expect(err.Error()).To(ContainSubstring("5.13"))
 			Expect(err.Error()).To(ContainSubstring("4.18"))
@@ -256,9 +242,8 @@ var _ = Describe("Integration", func() {
 			}
 			ctr := &api.Container{Id: "container-remove-1"}
 
-			updates, err := p.RemoveContainer(context.Background(), pod, ctr)
-			Expect(err).To(BeNil())
-			Expect(updates).To(BeNil())
+			err := p.RemoveContainer(context.Background(), pod, ctr)
+			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 
@@ -283,17 +268,17 @@ var _ = Describe("Integration", func() {
 
 			// CreateContainer should write state
 			adj, _, err := p.CreateContainer(context.Background(), pod, ctr)
-			Expect(err).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
 			Expect(adj).NotTo(BeNil())
 
 			// Verify state directory was created
 			stateDir := filepath.Join(tmpDir, "pod-uid-abc", "ctr-state-1")
 			_, statErr := os.Stat(stateDir)
-			Expect(statErr).To(BeNil())
+			Expect(statErr).NotTo(HaveOccurred())
 
 			// RemoveContainer should clean up state
-			_, err = p.RemoveContainer(context.Background(), pod, ctr)
-			Expect(err).To(BeNil())
+			err = p.RemoveContainer(context.Background(), pod, ctr)
+			Expect(err).NotTo(HaveOccurred())
 
 			// Verify state directory is removed
 			_, statErr = os.Stat(stateDir)
@@ -308,7 +293,7 @@ var _ = Describe("End-to-end injection lifecycle", func() {
 	BeforeEach(func() {
 		var err error
 		tmpDir, err = os.MkdirTemp("", "nono-e2e-*")
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 		nri.SetStateBaseDir(tmpDir)
 	})
 
@@ -339,7 +324,7 @@ var _ = Describe("End-to-end injection lifecycle", func() {
 		}
 
 		adj, updates, err := p.CreateContainer(context.Background(), pod, ctr)
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 		Expect(updates).To(BeNil())
 		Expect(adj).NotTo(BeNil())
 
@@ -359,11 +344,11 @@ var _ = Describe("End-to-end injection lifecycle", func() {
 		// Verify metadata.json was written
 		metaPath := filepath.Join(tmpDir, "pod-uid-e2e", "ctr-e2e-1", "metadata.json")
 		_, statErr := os.Stat(metaPath)
-		Expect(statErr).To(BeNil())
+		Expect(statErr).NotTo(HaveOccurred())
 
 		// Read and unmarshal metadata
 		data, readErr := os.ReadFile(metaPath)
-		Expect(readErr).To(BeNil())
+		Expect(readErr).NotTo(HaveOccurred())
 		var meta nri.ContainerMetadata
 		Expect(json.Unmarshal(data, &meta)).To(Succeed())
 		Expect(meta.ContainerID).To(Equal("ctr-e2e-1"))
@@ -373,14 +358,14 @@ var _ = Describe("End-to-end injection lifecycle", func() {
 		Expect(meta.Timestamp).NotTo(BeEmpty())
 
 		// Verify log output contains "injected" and required CORE-04 fields
-		var logEntry integrationLogEntry
-		Expect(json.Unmarshal(buf.Bytes(), &logEntry)).To(Succeed())
-		Expect(logEntry.Msg).To(Equal("injected"))
-		Expect(logEntry.ContainerID).To(Equal("ctr-e2e-1"))
+		var entry logEntry
+		Expect(json.Unmarshal(buf.Bytes(), &entry)).To(Succeed())
+		Expect(entry.Msg).To(Equal("injected"))
+		Expect(entry.ContainerID).To(Equal("ctr-e2e-1"))
 
 		// RemoveContainer should clean up state dir
-		_, err = p.RemoveContainer(context.Background(), pod, ctr)
-		Expect(err).To(BeNil())
+		err = p.RemoveContainer(context.Background(), pod, ctr)
+		Expect(err).NotTo(HaveOccurred())
 
 		// Container dir should be gone
 		ctrDir := filepath.Join(tmpDir, "pod-uid-e2e", "ctr-e2e-1")
@@ -413,7 +398,7 @@ var _ = Describe("End-to-end injection lifecycle", func() {
 		ctr := &api.Container{Id: "ctr-skip-1"}
 
 		adj, updates, err := p.CreateContainer(context.Background(), pod, ctr)
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 		Expect(adj).To(BeNil())
 		Expect(updates).To(BeNil())
 
@@ -422,9 +407,9 @@ var _ = Describe("End-to-end injection lifecycle", func() {
 		Expect(errors.Is(statErr, os.ErrNotExist)).To(BeTrue())
 
 		// Log should contain "skip"
-		var logEntry integrationLogEntry
-		Expect(json.Unmarshal(buf.Bytes(), &logEntry)).To(Succeed())
-		Expect(logEntry.Msg).To(Equal("skip"))
+		var entry logEntry
+		Expect(json.Unmarshal(buf.Bytes(), &entry)).To(Succeed())
+		Expect(entry.Msg).To(Equal("skip"))
 	})
 
 	It("multiple containers across pods with mixed injection", func() {
@@ -456,27 +441,27 @@ var _ = Describe("End-to-end injection lifecycle", func() {
 
 		// CreateContainer for matching: adj non-nil, state written
 		adj1, _, err := p.CreateContainer(context.Background(), matchingPod, matchingCtr)
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 		Expect(adj1).NotTo(BeNil())
 		matchStateDir := filepath.Join(tmpDir, "pod-uid-match", "ctr-match-1")
 		_, statErr := os.Stat(matchStateDir)
-		Expect(statErr).To(BeNil())
+		Expect(statErr).NotTo(HaveOccurred())
 
 		// CreateContainer for non-matching: adj nil, no state
 		adj2, _, err := p.CreateContainer(context.Background(), nonMatchingPod, nonMatchingCtr)
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 		Expect(adj2).To(BeNil())
 		_, statErr = os.Stat(filepath.Join(tmpDir, "pod-uid-nomatch"))
 		Expect(errors.Is(statErr, os.ErrNotExist)).To(BeTrue())
 
 		// RemoveContainer for matching: state cleaned
-		_, err = p.RemoveContainer(context.Background(), matchingPod, matchingCtr)
-		Expect(err).To(BeNil())
+		err = p.RemoveContainer(context.Background(), matchingPod, matchingCtr)
+		Expect(err).NotTo(HaveOccurred())
 		_, statErr = os.Stat(matchStateDir)
 		Expect(errors.Is(statErr, os.ErrNotExist)).To(BeTrue())
 
 		// RemoveContainer for non-matching: no error (RemoveMetadata is safe on non-existent paths)
-		_, err = p.RemoveContainer(context.Background(), nonMatchingPod, nonMatchingCtr)
-		Expect(err).To(BeNil())
+		err = p.RemoveContainer(context.Background(), nonMatchingPod, nonMatchingCtr)
+		Expect(err).NotTo(HaveOccurred())
 	})
 })

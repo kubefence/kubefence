@@ -66,14 +66,14 @@ func (p *Plugin) CreateContainer(
 }
 
 // RemoveContainer is called by the NRI runtime after a container is removed.
-// It logs the removal event at debug level, cleans up the container's state
-// directory, and returns no updates.
+// It cleans up the container's state directory.
+// Signature matches stub.RemoveContainerInterface: returns error only (no ContainerUpdate).
 func (p *Plugin) RemoveContainer(
 	ctx context.Context,
 	pod *api.PodSandbox,
 	ctr *api.Container,
-) ([]*api.ContainerUpdate, error) {
-	p.Log.Debug("container-removed",
+) error {
+	p.Log.Info("container-removed",
 		"container_id", ctr.GetId(),
 		"pod", pod.GetName(),
 		"namespace", pod.GetNamespace(),
@@ -81,5 +81,5 @@ func (p *Plugin) RemoveContainer(
 	if err := RemoveMetadata(pod.GetUid(), ctr.GetId()); err != nil {
 		p.Log.Warn("failed to remove state metadata", "container_id", ctr.GetId(), "error", err)
 	}
-	return nil, nil
+	return nil
 }

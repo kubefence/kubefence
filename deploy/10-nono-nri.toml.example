@@ -14,7 +14,7 @@
 # socket_path: NRI socket path. Empty string uses the NRI default
 #   (/var/run/nri/nri.sock).
 
-runtime_classes = ["nono-sandbox"]
+runtime_classes = ["nono-runc"]
 default_profile = "default"
 nono_bin_path = "/opt/nono-nri/nono"
 socket_path = ""
