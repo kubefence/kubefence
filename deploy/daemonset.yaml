@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nono-nri
+  namespace: kube-system
+  labels:
+    app: nono-nri
+spec:
+  selector:
+    matchLabels:
+      app: nono-nri
+  template:
+    metadata:
+      labels:
+        app: nono-nri
+    spec:
+      initContainers:
+        - name: install-nono
+          image: nono-nri:latest
+          imagePullPolicy: IfNotPresent
+          command: ["cp", "/usr/local/bin/nono", "/opt/nono-nri/nono"]
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: nono-host-dir
+              mountPath: /opt/nono-nri
+      containers:
+        - name: nono-nri
+          image: nono-nri:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - /usr/local/bin/10-nono-nri
+            - --config
+            - /etc/nri/conf.d/10-nono-nri.toml
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: nri-socket
+              mountPath: /var/run/nri
+              readOnly: true
+            - name: nono-host-dir
+              mountPath: /opt/nono-nri
+              readOnly: true
+            - name: nri-config
+              mountPath: /etc/nri/conf.d
+              readOnly: true
+      tolerations:
+        - operator: Exists
+      volumes:
+        - name: nri-socket
+          hostPath:
+            path: /var/run/nri
+            type: Directory
+        - name: nono-host-dir
+          hostPath:
+            path: /opt/nono-nri
+            type: DirectoryOrCreate
+        - name: nri-config
+          hostPath:
+            path: /etc/nri/conf.d
+            type: DirectoryOrCreate
