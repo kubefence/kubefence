@@ -18,6 +18,10 @@ uniformly for both runc and Kata Containers runtimes with no changes required to
 
 ![node-dev sandbox demo](contrib/node-dev/node-demo.gif)
 
+**kata-sandbox** — nono inside a Kata Containers QEMU/KVM micro-VM; nono binary delivered via virtiofs bind-mount, no initrd embed:
+
+![kata-sandbox demo](contrib/kata-sandbox/kata-demo.gif)
+
 See [`contrib/`](contrib/) for manifests, Dockerfiles, and full demo scripts.
 
 ## How It Works
