@@ -17,6 +17,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RUNTIME="${RUNTIME:-containerd}"
 CLUSTER_NAME="${CLUSTER_NAME:-nono-${RUNTIME}}"
 IMAGE="${IMAGE:-nono-nri:latest}"
+KATA="${KATA:-true}"   # set KATA=false to skip Kata Containers installation
 
 # ── Validate runtime ──────────────────────────────────────────────────────────
 if [[ "$RUNTIME" != "containerd" && "$RUNTIME" != "crio" ]]; then
@@ -118,10 +119,119 @@ EOF
   "
 fi
 
+# ── Install Kata Containers via helm ──────────────────────────────────────────
+if [[ "$KATA" == "true" ]]; then
+  echo ""
+  echo "==> Installing Kata Containers (kata-deploy helm chart)..."
+  KATA_VERSION=$(curl -sSL https://api.github.com/repos/kata-containers/kata-containers/releases/latest \
+    | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+  echo "    kata version: $KATA_VERSION"
+  helm install kata-deploy \
+    --namespace kube-system \
+    --wait --timeout 10m \
+    -f "$SCRIPT_DIR/kata-values.yaml" \
+    oci://ghcr.io/kata-containers/kata-deploy-charts/kata-deploy \
+    --version "$KATA_VERSION"
+  echo "==> Kata Containers installed."
+
+  # ── Kata node tuning for kind (nested KVM) ───────────────────────────────
+  echo ""
+  echo "==> Tuning Kata for nested-KVM kind environment..."
+
+  # 1. Expand /dev/shm: kata uses memory-backend-file in /dev/shm for NUMA.
+  #    The Docker default is 64 MB; 2 GB+ needed for kata VM memory.
+  docker exec "$NODE" mount -o remount,size=16g /dev/shm
+
+  # 2. Use the host kernel inside the kata VM.
+  #    The kata-bundled kernel (6.18.15) lacks Landlock (CONFIG_SECURITY_LANDLOCK=n).
+  #    The host kernel has Landlock built-in (=y) and works in nested KVM when
+  #    kernel_irqchip=split is set.  vsock and virtiofs are modules (=m) on the
+  #    host, so we build a custom initrd that insmod's them before the kata-agent.
+
+  HOST_KERN=$(docker exec "$NODE" uname -r)
+  KATA_SHARE="/opt/kata/share/kata-containers"
+  KATA_CFG="/opt/kata/share/defaults/kata-containers/runtimes/qemu/configuration-qemu.toml"
+
+  # 2a. Extract the uncompressed host vmlinux and copy into the kata directory.
+  EXTRACT_SCRIPT=$(docker exec "$NODE" sh -c "
+    find /usr/src -name extract-vmlinux 2>/dev/null | head -1
+  ")
+  if [ -z "$EXTRACT_SCRIPT" ]; then
+    docker exec "$NODE" sh -c "apt-get install -qq -y linux-headers-\$(uname -r) 2>/dev/null || true"
+    EXTRACT_SCRIPT=$(docker exec "$NODE" sh -c "find /usr/src -name extract-vmlinux 2>/dev/null | head -1")
+  fi
+
+  if [ -n "$EXTRACT_SCRIPT" ]; then
+    docker exec "$NODE" sh -c "
+      ${EXTRACT_SCRIPT} /boot/vmlinuz-${HOST_KERN} > ${KATA_SHARE}/vmlinux-host.container && \
+      chmod 644 ${KATA_SHARE}/vmlinux-host.container
+    "
+    echo "    Extracted host vmlinux ($(docker exec "$NODE" sh -c "ls -lh ${KATA_SHARE}/vmlinux-host.container | awk '{print \$5}'")"
+  else
+    # Fallback: copy directly into a temp dir on the host then docker cp
+    sudo /usr/src/linux-headers-$(uname -r)/scripts/extract-vmlinux /boot/vmlinuz-$(uname -r) > /tmp/_vmlinux-host 2>/dev/null || \
+      cp /boot/vmlinuz-$(uname -r) /tmp/_vmlinux-host
+    docker cp /tmp/_vmlinux-host "$NODE:${KATA_SHARE}/vmlinux-host.container"
+    docker exec "$NODE" chmod 644 "${KATA_SHARE}/vmlinux-host.container"
+    rm -f /tmp/_vmlinux-host
+  fi
+
+  # 2b. Build a custom initrd: kata-agent init + host kernel vsock/virtiofs modules.
+  INITRD_WORK=$(mktemp -d)
+  docker cp "$NODE:${KATA_SHARE}/kata-containers-initrd.img" "${INITRD_WORK}/kata-initrd.img"
+  (cd "$INITRD_WORK" && gzip -d -c kata-initrd.img | cpio -idm 2>/dev/null)
+
+  # Add host kernel modules (vsock + virtiofs).
+  KERN=$(uname -r)
+  MOD_DIR="${INITRD_WORK}/lib/modules/${KERN}/kernel"
+  mkdir -p "${MOD_DIR}/net/vmw_vsock" "${MOD_DIR}/fs/fuse"
+  for MOD_ZST in \
+    /lib/modules/${KERN}/kernel/net/vmw_vsock/vsock.ko.zst \
+    /lib/modules/${KERN}/kernel/net/vmw_vsock/vmw_vsock_virtio_transport_common.ko.zst \
+    /lib/modules/${KERN}/kernel/net/vmw_vsock/vmw_vsock_virtio_transport.ko.zst \
+    /lib/modules/${KERN}/kernel/fs/fuse/virtiofs.ko.zst; do
+    MOD=$(basename "${MOD_ZST}" .zst)
+    zstd -d "${MOD_ZST}" -o "${MOD_DIR}/$(basename $(dirname ${MOD_ZST}))/$(basename ${MOD_ZST} .zst)" -f -q
+  done
+
+  # Wrap /sbin/init: insmod modules then exec the real kata-agent.
+  cp "${INITRD_WORK}/sbin/init" "${INITRD_WORK}/sbin/kata-agent-real"
+  cat > "${INITRD_WORK}/sbin/init" <<INITSCRIPT
+#!/bin/sh
+insmod /lib/modules/${KERN}/kernel/net/vmw_vsock/vsock.ko 2>/dev/null || true
+insmod /lib/modules/${KERN}/kernel/net/vmw_vsock/vmw_vsock_virtio_transport_common.ko 2>/dev/null || true
+insmod /lib/modules/${KERN}/kernel/net/vmw_vsock/vmw_vsock_virtio_transport.ko 2>/dev/null || true
+insmod /lib/modules/${KERN}/kernel/fs/fuse/virtiofs.ko 2>/dev/null || true
+exec /sbin/kata-agent-real "\$@"
+INITSCRIPT
+  chmod 755 "${INITRD_WORK}/sbin/init"
+
+  # Repack and deploy.
+  (cd "$INITRD_WORK" && find . | cpio -o -H newc 2>/dev/null | gzip -9 > /tmp/_kata-initrd-host.img)
+  docker cp /tmp/_kata-initrd-host.img "$NODE:${KATA_SHARE}/kata-initrd-host.img"
+  docker exec "$NODE" sh -c "chown root:root ${KATA_SHARE}/kata-initrd-host.img && chmod 644 ${KATA_SHARE}/kata-initrd-host.img"
+  rm -rf "$INITRD_WORK" /tmp/_kata-initrd-host.img
+  echo "    Custom initrd built with host kernel modules."
+
+  # 2c. Patch kata QEMU config.
+  docker exec "$NODE" sed -i "
+    s|^kernel = .*|kernel = \"${KATA_SHARE}/vmlinux-host.container\"|;
+    s|^initrd = .*|initrd = \"${KATA_SHARE}/kata-initrd-host.img\"|;
+    s|^machine_accelerators = .*|machine_accelerators = \"kernel_irqchip=split\"|
+  " "$KATA_CFG"
+  echo "    Kata QEMU config patched (host kernel, kernel_irqchip=split)."
+fi
+
 # ── Install TOML config ───────────────────────────────────────────────────────
-# runtime_classes must match the RuntimeClass handler (nono-runc), not the name
-TOML=$(cat <<'EOF'
-runtime_classes = ["nono-runc"]
+# runtime_classes must match the RuntimeClass handler (nono-runc / kata-qemu),
+# not the RuntimeClass name.  kata-qemu is added when KATA=true.
+if [[ "$KATA" == "true" ]]; then
+  RUNTIME_CLASSES='["nono-runc", "kata-qemu"]'
+else
+  RUNTIME_CLASSES='["nono-runc"]'
+fi
+TOML=$(cat <<EOF
+runtime_classes = ${RUNTIME_CLASSES}
 default_profile = "default"
 nono_bin_path = "/opt/nono-nri/nono"
 socket_path = ""
@@ -133,7 +243,7 @@ TOMLEOF"
 
 # ── Apply Kubernetes manifests ────────────────────────────────────────────────
 echo ""
-echo "==> Applying RuntimeClass (handler: nono-runc)..."
+echo "==> Applying RuntimeClasses (nono-sandbox, kata-nono-sandbox)..."
 kubectl apply -f "$REPO_ROOT/deploy/runtimeclass.yaml"
 
 echo "==> Applying DaemonSet..."

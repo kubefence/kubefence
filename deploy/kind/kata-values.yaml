@@ -1,0 +1,20 @@
+# Helm values for kata-deploy in a kind (KVM-capable) cluster.
+#
+# Only QEMU is enabled — the simplest shim that works with nested KVM
+# (which kind nodes support when /dev/kvm is exposed from the host).
+#
+# kata-deploy DaemonSet will:
+#   1. Copy kata binaries to /opt/kata/bin/ on the node
+#   2. Patch /etc/containerd/config.toml to register the kata-qemu runtime
+#   3. Create the kata-qemu RuntimeClass
+k8sDistribution: k8s
+
+shims:
+  disableAll: true
+  qemu:
+    enabled: true
+
+# Let kata-deploy manage RuntimeClass creation.
+# We add a separate kata-nono-sandbox RC (same handler) in runtimeclass.yaml.
+runtimeClasses:
+  enabled: true

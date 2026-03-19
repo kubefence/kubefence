@@ -63,7 +63,7 @@ check_contains() {
 json_get() { echo "$1" | grep -o "\"$2\":\"[^\"]*\"" | sed 's/.*":"//' | tr -d '"'; }
 
 cleanup_pods() {
-  kubectl delete pod nono-e2e-sandboxed nono-e2e-plain \
+  kubectl delete pod nono-e2e-sandboxed nono-e2e-plain nono-e2e-kata \
     --ignore-not-found=true --wait=false &>/dev/null || true
 }
 trap cleanup_pods EXIT
@@ -292,6 +292,53 @@ if [[ -n "$CTR_ID" ]]; then
   fi
 else
   pass "state dir cleanup (skipped — no CTR_ID captured)"
+fi
+
+echo ""
+
+# ── Test 5: Kata + nono sandboxed pod ────────────────────────────────────────
+echo "── Test 5: Kata Containers + nono injection ─────────────────────────────"
+
+KATA_RC=$(kubectl get runtimeclass kata-nono-sandbox --no-headers 2>/dev/null | awk '{print $1}' || echo "")
+if [[ -z "$KATA_RC" ]]; then
+  pass "kata-nono-sandbox RuntimeClass (skipped — not installed)"
+else
+  kubectl apply -f - &>/dev/null <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nono-e2e-kata
+  namespace: default
+  annotations:
+    nono.sh/profile: "default"
+spec:
+  runtimeClassName: kata-nono-sandbox
+  restartPolicy: Never
+  containers:
+    - name: test
+      image: ${TEST_IMAGE}
+      imagePullPolicy: IfNotPresent
+      command: ["sleep", "infinity"]
+EOF
+
+  require "kata+nono pod becomes Running" \
+    kubectl wait --for=condition=ready pod/nono-e2e-kata --timeout=120s
+
+  # nono wraps the command — PID 1 in the guest should be nono (or sleep after exec)
+  KATA_CMDLINE=$(kubectl exec nono-e2e-kata -- \
+    cat /proc/1/cmdline 2>/dev/null | tr '\0' ' ' || echo "")
+  check_contains "/proc/1/cmdline shows original command inside VM" \
+    "$KATA_CMDLINE" "sleep"
+
+  # /nono/nono must be accessible inside the guest (virtiofs bind-mount)
+  check "/nono/nono is accessible inside Kata VM" \
+    kubectl exec nono-e2e-kata -- test -x /nono/nono
+
+  PLUGIN_LOGS3=$(kubectl logs -n kube-system "$PLUGIN_POD" 2>/dev/null || echo "")
+  check_contains "plugin logged injection for kata pod" \
+    "$PLUGIN_LOGS3" '"pod":"nono-e2e-kata"'
+
+  kubectl delete pod nono-e2e-kata --wait=false --ignore-not-found=true &>/dev/null || true
 fi
 
 echo ""
