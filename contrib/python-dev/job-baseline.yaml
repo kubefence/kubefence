@@ -5,7 +5,7 @@ metadata:
   namespace: default
   labels:
     app: nono-demo
-    profile: python-dev
+    profile: default
     mode: baseline
 spec:
   backoffLimit: 0
@@ -22,22 +22,22 @@ spec:
             - |
               set +e
               echo "============================================"
-              echo " Profile: python-dev | Mode: BASELINE"
-              echo " (no runtimeClassName — no nono sandbox)"
+              echo " Mode: BASELINE (no runtimeClassName)"
+              echo " No sandbox — full container access"
               echo "============================================"
               echo ""
-              touch /tmp/nono-demo-file 2>/dev/null || true
               chk() { printf '  %-50s' "$1"; shift; "$@" >/dev/null 2>&1 && echo "ALLOWED" || echo "BLOCKED"; }
 
-              echo "--- dangerous_commands (expected: ALLOWED without sandbox) ---"
-              chk "rm -f /tmp/nono-demo-file"              rm -f /tmp/nono-demo-file
-              chk "dd if=/dev/zero of=/tmp/dd-out"         dd if=/dev/zero of=/tmp/dd-out bs=1 count=1
-              chk "chmod 777 /etc/hostname"                chmod 777 /etc/hostname
-              chk "pip --version"                          pip --version
-              chk "apt-get install curl (dry-run)"         apt-get install -y --dry-run curl
+              echo "--- attack surface (expected: ALLOWED without sandbox) ---"
+              chk "write /etc/hosts (host poisoning)"       bash -c 'echo "1.2.3.4 evil.com" >> /etc/hosts'
+              chk "write /usr/local/bin/exploit (backdoor)" bash -c 'echo "#!/bin/sh" > /usr/local/bin/exploit'
+              chk "read /etc/shadow (credential theft)"     cat /etc/shadow
+              chk "read /etc/passwd (user enumeration)"     cat /etc/passwd
+              chk "write site-packages/evil.py (pkg inject)" bash -c 'echo "import os" > /usr/local/lib/python3.12/site-packages/evil.py'
               echo ""
               echo "--- python-dev runtime (expected: ALLOWED) ---"
-              chk "python3 --version"                      python3 --version
-              chk "python3 -c print"                       python3 -c 'print("hello from baseline")'
+              chk "python3 --version"                       python3 --version
+              chk "python3 -c print"                        python3 -c 'print("hello from baseline")'
+              chk "write /tmp/workfile"                     bash -c 'echo "workspace" > /tmp/workfile'
               echo ""
               echo "Done."

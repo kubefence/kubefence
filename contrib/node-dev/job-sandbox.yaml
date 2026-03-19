@@ -38,7 +38,7 @@ spec:
               chk "dd if=/dev/zero of=/tmp/dd-out"         dd if=/dev/zero of=/tmp/dd-out bs=1 count=1
               chk "chmod 777 /etc/hostname"                chmod 777 /etc/hostname
               chk "npm --version"                          npm --version
-              chk "apt-get install curl (dry-run)"         apt-get install -y --dry-run curl
+              chk "apt-get --version"                     apt-get --version
               echo ""
               echo "--- node-dev runtime (expected: ALLOWED) ---"
               chk "node --version"                         node --version

@@ -1,20 +1,36 @@
 # contrib — nono sandbox profile examples
 
-Examples demonstrating nono sandboxing with development profiles using `nono wrap` (direct mode).
-Each example runs a Kubernetes Job that tries dangerous shell commands and language-specific
-package managers — showing them **blocked** inside the sandbox while the language runtime itself
-still works.
+Examples demonstrating nono sandboxing on Kubernetes using `nono wrap` (direct mode).
+Each example shows a clear before/after comparison: an unsandboxed baseline pod vs the
+same workload running inside a nono Landlock sandbox.
+
+## What nono wrap enforces
+
+`nono wrap` applies a **Linux Landlock filesystem sandbox** to the container process.
+The `default` profile (wrap-compatible) restricts:
+
+| Access type                        | Baseline | nono sandbox |
+|------------------------------------|----------|--------------|
+| Write to `/etc/*` (host poisoning) | ALLOWED  | **BLOCKED**  |
+| Write to `/usr/local/bin` (backdoor) | ALLOWED | **BLOCKED** |
+| Read `/etc/shadow` (credential theft) | ALLOWED | **BLOCKED** |
+| Read `/etc/passwd` (user enumeration) | ALLOWED | **BLOCKED** |
+| Write to Python site-packages (pkg inject) | ALLOWED | **BLOCKED** |
+| Python / Node / Go runtime         | ALLOWED  | **ALLOWED**  |
+| Write to `/tmp` (scratch space)    | ALLOWED  | **ALLOWED**  |
+
+> **Note on dev profiles:** The `python-dev`, `node-dev`, and `go-dev` built-in profiles
+> enable network proxy filtering, which requires `nono run` (supervisor mode).
+> They are **not compatible with `nono wrap`** (direct mode). Use the `default` profile
+> (or a custom TOML profile without network proxy) with `nono wrap`.
 
 ## Profiles covered
 
-| Directory    | Profile     | Extra blocked     | Runtime allowed |
-|--------------|-------------|-------------------|-----------------|
-| `python-dev` | python-dev  | `pip`             | `python3`       |
-| `node-dev`   | node-dev    | `npm`             | `node`          |
-| `go-dev`     | go-dev      | —                 | `go`            |
-
-All three profiles include the `dangerous_commands` group, which blocks:
-`rm`, `dd`, `chmod`, `sudo`, `mkfs`, `kill`, `apt-get`, `apt`, `yum`, `dnf`, `pacman`
+| Directory    | Profile  | Sandbox mode     | Container image     |
+|--------------|----------|------------------|---------------------|
+| `python-dev` | default  | nono wrap        | python:3.12-slim    |
+| `node-dev`   | default  | nono wrap        | node:20-slim        |
+| `go-dev`     | default  | nono wrap        | golang:1.23-bookworm|
 
 ## Prerequisites
 
@@ -23,8 +39,8 @@ All three profiles include the `dangerous_commands` group, which blocks:
 - `docker` and `kind` in PATH
 - nono-nri DaemonSet running: `kubectl rollout status daemonset/nono-nri -n kube-system`
 
-> **Image requirement:** The demo images are Debian-based and include `libdbus-1-3`, which the
-> nono binary requires. Alpine / musl-based images cannot run the nono binary.
+> **Image requirement:** Demo images are Debian-based with `libdbus-1-3`, which the
+> nono binary requires at runtime. Alpine / musl images cannot run the nono binary.
 
 ## Quick start
 
@@ -36,47 +52,31 @@ RUNTIME=containerd CLUSTER_NAME=nono-containerd bash contrib/go-dev/demo.sh
 
 # CRI-O cluster
 RUNTIME=crio CLUSTER_NAME=nono-crio bash contrib/python-dev/demo.sh
-RUNTIME=crio CLUSTER_NAME=nono-crio bash contrib/node-dev/demo.sh
-RUNTIME=crio CLUSTER_NAME=nono-crio bash contrib/go-dev/demo.sh
 ```
 
-## What to expect
+## Recorded demo
 
-**Baseline job** (no runtimeClassName): all commands succeed — dangerous ones included.
+An asciinema recording of the python-dev example (containerd cluster) is included:
 
-**Sandbox job** (runtimeClassName: nono-sandbox + dev profile): dangerous commands return
-a non-zero exit (blocked by Landlock), while the language runtime executes normally.
-
-```
---- dangerous_commands (expected: BLOCKED) ---
-  rm -f /tmp/nono-demo-file                    BLOCKED
-  dd if=/dev/zero of=/tmp/dd-out               BLOCKED
-  chmod 777 /etc/hostname                      BLOCKED
-  pip --version                                BLOCKED
-  apt-get install curl                         BLOCKED
-
---- python-dev runtime (expected: ALLOWED) ---
-  python3 --version                            ALLOWED
-  python3 -c print                             ALLOWED
+```bash
+asciinema play contrib/python-dev/demo.cast
 ```
 
 ## Manual apply
 
-Apply the jobs directly without the demo script:
-
 ```bash
-# Build and load the image first (containerd example)
+# Build and load the image (containerd example)
 docker build -t nono-demo-python:latest contrib/python-dev/
 docker save nono-demo-python:latest | \
   docker exec -i nono-containerd-control-plane ctr -n k8s.io images import -
 
-# Run both jobs
+# Run both jobs and compare
 kubectl apply -f contrib/python-dev/job-baseline.yaml
 kubectl apply -f contrib/python-dev/job-sandbox.yaml
 
-# Wait and compare
 kubectl wait --for=condition=complete job/python-dev-baseline --timeout=120s
 kubectl wait --for=condition=complete job/python-dev-sandbox  --timeout=120s
+
 kubectl logs job/python-dev-baseline
 kubectl logs job/python-dev-sandbox
 
