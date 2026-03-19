@@ -45,6 +45,17 @@ OCI spec: args:   ["/nono/nono", "wrap", "--profile", "default", "--", "myapp", 
 PID 1:    /usr/bin/myapp --flag   (nono exec'd in and vanished)
 ```
 
+## Container image
+
+Published image (built by CI on every release):
+
+```
+ghcr.io/bpradipt/kubefence:latest
+```
+
+The image bundles the compiled `10-nono-nri` NRI plugin and the `nono` sandbox
+binary. No local build is required to try it out.
+
 ## Requirements
 
 | Component | Minimum version |
@@ -75,6 +86,26 @@ make docker-build    # outputs nono-nri:latest
 ## Deploy
 
 ### Quick start with Kind
+
+**Using the published image (no build required):**
+
+```bash
+git clone https://github.com/bpradipt/kubefence
+cd kubefence
+
+IMAGE=ghcr.io/bpradipt/kubefence:latest \
+SKIP_BUILD=true \
+KATA=false \
+bash deploy/kind/deploy.sh
+
+# Run e2e tests
+RUNTIME=containerd CLUSTER_NAME=nono-containerd bash deploy/kind/e2e.sh
+
+# Tear down
+kind delete cluster --name nono-containerd
+```
+
+**Building from source:**
 
 ```bash
 # containerd (default)
@@ -117,8 +148,10 @@ cp deploy/10-nono-nri.toml.example /etc/nri/conf.d/10-nono-nri.toml
 # Register the sandboxed RuntimeClass
 kubectl apply -f deploy/runtimeclass.yaml
 
-# Deploy the plugin DaemonSet (copies nono to host via init container)
-kubectl apply -f deploy/daemonset.yaml
+# Deploy the plugin DaemonSet using the published image
+IMAGE=ghcr.io/bpradipt/kubefence:latest
+sed "s|image: nono-nri:latest|image: ${IMAGE}|g" deploy/daemonset.yaml \
+  | kubectl apply -f -
 
 kubectl rollout status daemonset/nono-nri -n kube-system
 ```
@@ -188,7 +221,7 @@ socket_path = ""
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
 | `lint` | push/PR to main | `gofmt`, `go vet`, `go mod tidy`, `go test -race` |
-| `release` | GitHub release published | Downloads nono binary, builds and pushes `ghcr.io/<org>/nono-nri` to GHCR |
+| `release` | GitHub release published | Downloads nono binary, builds and pushes `ghcr.io/bpradipt/kubefence` to GHCR |
 
 The nono version embedded in the image is controlled by `NONO_VERSION` in
 [`.github/workflows/release.yaml`](.github/workflows/release.yaml). Update that
@@ -214,7 +247,7 @@ make kind-test
   release.yaml         # CD: build + push image to GHCR on release
 cmd/nono-nri/          # plugin entrypoint (main.go)
 internal/nri/
-  plugin.go            # CreateContainer / RemoveContainer handlers
+  plugin.go            # CreateContainer / StopContainer / RemoveContainer handlers
   adjustments.go       # BuildAdjustment: SetArgs + AddMount
   filter.go            # ShouldSandbox: RuntimeClass matching
   profile.go           # ResolveProfile: annotation → profile name
