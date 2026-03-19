@@ -276,19 +276,36 @@ echo ""
 echo "── Test 4: State dir cleanup on pod deletion ────────────────────────────"
 
 kubectl delete pod nono-e2e-sandboxed --wait=true &>/dev/null
-sleep 10
 
-# Check by container ID — more reliable than pod name (ignores old runs)
+# Poll for up to 30 s — RemoveContainer NRI event is synchronous on containerd
+# but may be slightly delayed in some environments (e.g. remote image pull cold start).
 if [[ -n "$CTR_ID" ]]; then
-  AFTER=$(kubectl exec -n kube-system "$PLUGIN_POD" -- sh -c \
-    "find /var/run/nono-nri -name metadata.json 2>/dev/null | \
-     xargs grep -l \"\\\"container_id\\\":\\\"${CTR_ID}\\\"\" 2>/dev/null | wc -l" \
-    2>/dev/null | tr -d '[:space:]' || echo "0")
+  AFTER="1"
+  for _i in $(seq 1 30); do
+    # Use a while-read loop instead of xargs so the command is safe when find
+    # returns no files (xargs with empty input can misbehave on busybox).
+    AFTER=$(kubectl exec -n kube-system "$PLUGIN_POD" -- sh -c \
+      "find /var/run/nono-nri -maxdepth 3 -name metadata.json 2>/dev/null |
+       while IFS= read -r f; do
+         grep -q '\"container_id\":\"${CTR_ID}\"' \"\$f\" 2>/dev/null && echo \"\$f\"
+       done | wc -l" \
+      2>/dev/null | tr -d '[:space:]' || echo "1")
+    [[ "$AFTER" == "0" ]] && break
+    sleep 1
+  done
   if [[ "$AFTER" == "0" ]]; then
     pass "state dir for container removed after pod deletion"
   else
-    # Known limitation: CRI-O may not deliver RemoveContainer events in all scenarios
     fail "state dir for container removed after pod deletion"
+    # Diagnostics: show remaining state entries and plugin remove log
+    echo "  remaining metadata.json files:"
+    kubectl exec -n kube-system "$PLUGIN_POD" -- \
+      find /var/run/nono-nri -name metadata.json 2>/dev/null \
+      | sed 's/^/    /' || true
+    echo "  plugin log (remove/cleanup lines):"
+    kubectl logs -n kube-system "$PLUGIN_POD" 2>/dev/null \
+      | grep -i 'remove\|cleanup' | tail -10 \
+      | sed 's/^/    /' || true
   fi
 else
   pass "state dir cleanup (skipped — no CTR_ID captured)"
