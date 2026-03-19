@@ -84,22 +84,27 @@ echo "x" > /usr/local/bin/exploit
 python3 --version
 ```
 
-**Sandbox** — `kubectl exec` bypasses Landlock (processes spawned by the container
-runtime have `ppid=0`, not descended from the sandboxed PID 1). You must invoke
-`nono wrap` explicitly to enter a sandboxed shell:
+**Sandbox** — the demo image replaces `/bin/bash` with a nono wrapper (see
+`Dockerfile`). When `/nono/nono` is bind-mounted by NRI the wrapper automatically
+invokes `nono wrap` before handing off to real bash, so plain exec just works:
 
 ```bash
-# ✗ Wrong — exec'd bash has ppid=0, Landlock not inherited, nothing is blocked:
-kubectl exec -it python-dev-sandbox -- bash
-
-# ✓ Correct — nono wrap applies Landlock, then exec()s into bash:
-kubectl exec -it python-dev-sandbox -- /nono/nono wrap --profile default -- bash
-# Inside this shell:
+kubectl exec -it python-dev-sandbox -- bash   # sandboxed automatically
+# Inside:
 echo "1.2.3.4 evil" >> /etc/hosts   # Permission denied (BLOCKED)
 cat /etc/shadow                      # Permission denied (BLOCKED)
 python3 --version                    # ALLOWED
 echo "ok" > /tmp/workfile            # ALLOWED
 ```
+
+> **Why this works:** `kubectl exec` spawns processes with `ppid=0` via the
+> container runtime, bypassing the sandboxed PID 1. Simply wrapping `/bin/bash`
+> in the image re-applies Landlock for every exec'd shell automatically.
+>
+> **Production guidance:** for real workloads prefer a distroless / no-shell
+> image — NRI wraps the app binary and there is no shell to exec into at all.
+> Use Kubernetes ephemeral debug containers (`kubectl debug`) when you need
+> temporary shell access.
 
 Cleanup:
 ```bash

@@ -15,12 +15,16 @@ spec:
       command: ["sleep", "infinity"]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# INTERACTIVE USAGE — exec directly, no sandbox active
+# INTERACTIVE USAGE — no sandbox active
 # ─────────────────────────────────────────────────────────────────────────────
 #
-#   kubectl exec -it python-dev-baseline -- bash
+# No runtimeClassName → no NRI injection → /nono is not mounted.
+# The bash wrapper detects the absence of /nono/nono and falls back to
+# plain bash — so exec works normally with no sandboxing:
 #
-# THINGS TO TRY (all allowed — no sandbox):
+#   kubectl exec -it python-dev-baseline -- bash   ← no sandbox
+#
+# THINGS TO TRY (all allowed):
 #   echo "1.2.3.4 evil" >> /etc/hosts
 #   echo "#!/bin/sh" > /usr/local/bin/exploit
 #   cat /etc/shadow

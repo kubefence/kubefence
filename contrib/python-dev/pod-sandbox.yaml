@@ -24,36 +24,22 @@ spec:
 # INTERACTIVE USAGE
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# ⚠  DO NOT use plain `kubectl exec -- bash`:
+# The demo image replaces /bin/bash with a nono wrapper (see Dockerfile).
+# When /nono/nono is bind-mounted (sandbox pods), the wrapper automatically
+# invokes nono wrap before handing off to bash.real — so plain exec works:
 #
-#   kubectl exec -it python-dev-sandbox -- bash   # ← NOT sandboxed
+#   kubectl exec -it python-dev-sandbox -- bash   ← sandboxed automatically
 #
-#   kubectl exec spawns processes with ppid=0 via the container runtime,
-#   not as children of PID 1. Landlock is only inherited through the
-#   fork/exec chain from a sandboxed parent, so these processes receive
-#   no restrictions.
+# THINGS TO TRY inside the sandboxed shell:
 #
-# ✓  Invoke nono wrap explicitly to get a sandboxed shell:
+#   Blocked by Landlock:
+#     echo "1.2.3.4 evil" >> /etc/hosts
+#     echo "#!/bin/sh" > /usr/local/bin/exploit
+#     cat /etc/shadow
+#     cat /etc/passwd
+#     echo "import os" > /usr/local/lib/python3.12/site-packages/evil.py
 #
-#   kubectl exec -it python-dev-sandbox -- \
-#     /nono/nono wrap --profile default -- bash
-#
-#   nono applies Landlock to itself, then exec()s into bash.
-#   The resulting bash session (and all its children) is fully sandboxed.
-#
-# ─────────────────────────────────────────────────────────────────────────────
-# THINGS TO TRY inside the sandboxed shell
-# ─────────────────────────────────────────────────────────────────────────────
-#
-#   Blocked by Landlock (Landlock filesystem isolation):
-#     echo "1.2.3.4 evil" >> /etc/hosts          # host poisoning
-#     echo "#!/bin/sh" > /usr/local/bin/exploit   # backdoor binary
-#     cat /etc/shadow                             # credential theft
-#     cat /etc/passwd                             # user enumeration
-#     echo "import os" > \
-#       /usr/local/lib/python3.12/site-packages/evil.py  # pkg injection
-#
-#   Allowed (runtime / scratch space unaffected):
+#   Allowed (runtime / scratch space):
 #     python3 --version
 #     python3 -c 'print("hello")'
 #     echo "ok" > /tmp/workfile
