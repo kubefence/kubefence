@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: node-dev-baseline
+  namespace: default
+  labels:
+    app: nono-demo
+    profile: node-dev
+    mode: baseline
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: demo
+          image: nono-demo-node:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set +e
+              echo "============================================"
+              echo " Profile: node-dev | Mode: BASELINE"
+              echo " (no runtimeClassName — no nono sandbox)"
+              echo "============================================"
+              echo ""
+              touch /tmp/nono-demo-file 2>/dev/null || true
+              chk() { printf '  %-50s' "$1"; shift; "$@" >/dev/null 2>&1 && echo "ALLOWED" || echo "BLOCKED"; }
+
+              echo "--- dangerous_commands (expected: ALLOWED without sandbox) ---"
+              chk "rm -f /tmp/nono-demo-file"              rm -f /tmp/nono-demo-file
+              chk "dd if=/dev/zero of=/tmp/dd-out"         dd if=/dev/zero of=/tmp/dd-out bs=1 count=1
+              chk "chmod 777 /etc/hostname"                chmod 777 /etc/hostname
+              chk "npm --version"                          npm --version
+              chk "apt-get install curl (dry-run)"         apt-get install -y --dry-run curl
+              echo ""
+              echo "--- node-dev runtime (expected: ALLOWED) ---"
+              chk "node --version"                         node --version
+              chk "node -e console.log"                    node -e 'console.log("hello from baseline")'
+              echo ""
+              echo "Done."
