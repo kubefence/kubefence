@@ -83,3 +83,28 @@ func (p *Plugin) RemoveContainer(
 	}
 	return nil
 }
+
+// StopContainer is called by the NRI runtime before a container is stopped.
+// It cleans up the container's state directory.
+//
+// StopContainer is a synchronous direct RPC (containerd blocks until the plugin
+// responds), so it is reliably delivered to external plugins — unlike
+// RemoveContainer which is a StateChange notification that containerd 2.x does
+// not deliver to external socket-connected plugins.
+//
+// Signature matches stub.StopContainerInterface: returns ContainerUpdates + error.
+func (p *Plugin) StopContainer(
+	ctx context.Context,
+	pod *api.PodSandbox,
+	ctr *api.Container,
+) ([]*api.ContainerUpdate, error) {
+	p.Log.Info("container-stopping",
+		"container_id", ctr.GetId(),
+		"pod", pod.GetName(),
+		"namespace", pod.GetNamespace(),
+	)
+	if err := RemoveMetadata(pod.GetUid(), ctr.GetId()); err != nil {
+		p.Log.Warn("failed to remove state metadata", "container_id", ctr.GetId(), "error", err)
+	}
+	return nil, nil
+}

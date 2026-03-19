@@ -302,9 +302,9 @@ if [[ -n "$CTR_ID" ]]; then
     kubectl exec -n kube-system "$PLUGIN_POD" -- \
       find /var/run/nono-nri -name metadata.json 2>/dev/null \
       | sed 's/^/    /' || true
-    echo "  plugin log (remove/cleanup lines):"
+    echo "  plugin log (stop/remove/cleanup lines):"
     kubectl logs -n kube-system "$PLUGIN_POD" 2>/dev/null \
-      | grep -i 'remove\|cleanup' | tail -10 \
+      | grep -i 'stop\|remove\|cleanup' | tail -10 \
       | sed 's/^/    /' || true
   fi
 else
