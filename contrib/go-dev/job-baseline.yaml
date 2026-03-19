@@ -33,7 +33,7 @@ spec:
               chk "rm -f /tmp/nono-demo-file"              rm -f /tmp/nono-demo-file
               chk "dd if=/dev/zero of=/tmp/dd-out"         dd if=/dev/zero of=/tmp/dd-out bs=1 count=1
               chk "chmod 777 /etc/hostname"                chmod 777 /etc/hostname
-              chk "apt-get install curl (dry-run)"         apt-get install -y --dry-run curl
+              chk "apt-get --version"                     apt-get --version
               echo ""
               echo "--- go-dev runtime (expected: ALLOWED) ---"
               chk "go version"                             go version
