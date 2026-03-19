@@ -2,7 +2,33 @@
 
 Two cluster configurations are provided — one for each supported container runtime.
 
-## Prerequisites
+## Quick start (pre-built image — no source required)
+
+Prerequisites: Docker, [Kind](https://kind.sigs.k8s.io/) v0.20+, kubectl, helm.
+
+```bash
+git clone https://github.com/bpradipt/kubefence
+cd kubefence
+
+IMAGE=ghcr.io/bpradipt/kubefence:latest \
+SKIP_BUILD=true \
+KATA=false \
+bash deploy/kind/deploy.sh
+```
+
+Then run the e2e tests:
+
+```bash
+RUNTIME=containerd CLUSTER_NAME=nono-containerd bash deploy/kind/e2e.sh
+```
+
+Tear down when done:
+
+```bash
+kind delete cluster --name nono-containerd
+```
+
+## Prerequisites (building from source)
 
 - Docker (running)
 - [Kind](https://kind.sigs.k8s.io/) v0.20+
@@ -60,7 +86,8 @@ RUNTIME=crio bash deploy/kind/deploy.sh
 |----------|---------|-------------|
 | `RUNTIME` | `containerd` | `containerd` or `crio` |
 | `CLUSTER_NAME` | `nono-<runtime>` | Kind cluster name |
-| `IMAGE` | `nono-nri:latest` | Plugin image tag |
+| `IMAGE` | `nono-nri:latest` | Plugin image tag (set to `ghcr.io/bpradipt/kubefence:latest` to use the published image) |
+| `SKIP_BUILD` | `false` | Skip `make docker-build`; pull `IMAGE` from a registry instead |
 | `KATA` | `false` | Install Kata Containers (`true`/`false`) |
 | `REGISTRY_NAME` | `nono-nri-registry` | Local registry container name (crio only) |
 | `REGISTRY_PORT` | `5100` | Local registry port on the host (crio only) |

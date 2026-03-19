@@ -9,6 +9,7 @@
 #   RUNTIME       containerd (default) | crio
 #   CLUSTER_NAME  cluster name (default: nono-<runtime>)
 #   IMAGE         plugin image tag (default: nono-nri:latest)
+#   SKIP_BUILD    true to skip docker build and pull IMAGE from a registry instead
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,7 +18,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RUNTIME="${RUNTIME:-containerd}"
 CLUSTER_NAME="${CLUSTER_NAME:-nono-${RUNTIME}}"
 IMAGE="${IMAGE:-nono-nri:latest}"
-KATA="${KATA:-true}"   # set KATA=false to skip Kata Containers installation
+KATA="${KATA:-true}"        # set KATA=false to skip Kata Containers installation
+SKIP_BUILD="${SKIP_BUILD:-false}"  # set SKIP_BUILD=true to use a pre-built / remote image
 
 # ── Validate runtime ──────────────────────────────────────────────────────────
 if [[ "$RUNTIME" != "containerd" && "$RUNTIME" != "crio" ]]; then
@@ -28,6 +30,7 @@ fi
 echo "==> Runtime:      $RUNTIME"
 echo "==> Cluster name: $CLUSTER_NAME"
 echo "==> Image:        $IMAGE"
+echo "==> Skip build:   $SKIP_BUILD"
 
 # ── Select cluster config ─────────────────────────────────────────────────────
 if [[ "$RUNTIME" == "containerd" ]]; then
@@ -43,60 +46,76 @@ kind create cluster --name "$CLUSTER_NAME" --config "$CLUSTER_CONFIG"
 NODE="${CLUSTER_NAME}-control-plane"
 
 # ── Build plugin image ────────────────────────────────────────────────────────
-echo ""
-echo "==> Building nono-nri image..."
-cd "$REPO_ROOT"
-make docker-build IMAGE="$IMAGE"
+if [[ "$SKIP_BUILD" != "true" ]]; then
+  echo ""
+  echo "==> Building nono-nri image..."
+  cd "$REPO_ROOT"
+  make docker-build IMAGE="$IMAGE"
+else
+  echo ""
+  echo "==> Skipping build — using pre-built image: $IMAGE"
+fi
 
 # ── Load image into cluster ───────────────────────────────────────────────────
 echo ""
 echo "==> Loading image into Kind ($RUNTIME)..."
 
 if [[ "$RUNTIME" == "containerd" ]]; then
-  # kind load docker-image is broken with containerd v2.x (snapshotter detection).
-  # Import directly via ctr instead.
-  docker save "$IMAGE" | docker exec -i "$NODE" ctr -n k8s.io images import -
-
-elif [[ "$RUNTIME" == "crio" ]]; then
-  # CRI-O does not share Docker's image store. Use a local registry.
-  REGISTRY_NAME="nono-nri-registry"
-  REGISTRY_PORT="5100"
-  KIND_NET=$(docker inspect "$NODE" --format '{{range .NetworkSettings.Networks}}{{.NetworkID}}{{end}}' | head -1)
-
-  # Start registry if not already running
-  if ! docker ps --format '{{.Names}}' | grep -q "^${REGISTRY_NAME}$"; then
-    echo "==> Starting local Docker registry ($REGISTRY_NAME)..."
-    docker run -d --name "$REGISTRY_NAME" \
-      -p "127.0.0.1:${REGISTRY_PORT}:5000" \
-      --network "$KIND_NET" \
-      registry:2
-    sleep 2
+  if [[ "$SKIP_BUILD" == "true" ]]; then
+    # Remote image: pull directly into the kind node's containerd namespace.
+    docker exec "$NODE" ctr -n k8s.io images pull "$IMAGE"
+  else
+    # Local image: kind load docker-image is broken with containerd v2.x
+    # (snapshotter detection). Import directly via ctr instead.
+    docker save "$IMAGE" | docker exec -i "$NODE" ctr -n k8s.io images import -
   fi
 
-  REGISTRY_IP=$(docker inspect "$REGISTRY_NAME" \
-    --format "{{(index .NetworkSettings.Networks \"${KIND_NET}\").IPAddress}}" 2>/dev/null || \
-    docker inspect "$REGISTRY_NAME" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{break}}{{end}}')
+elif [[ "$RUNTIME" == "crio" ]]; then
+  if [[ "$SKIP_BUILD" == "true" ]]; then
+    # Remote image: pull directly via crictl on the kind node.
+    docker exec "$NODE" crictl pull "$IMAGE"
+    LOCAL_IMAGE="$IMAGE"
+  else
+    # Local image: CRI-O does not share Docker's image store. Use a local registry.
+    REGISTRY_NAME="nono-nri-registry"
+    REGISTRY_PORT="5100"
+    KIND_NET=$(docker inspect "$NODE" --format '{{range .NetworkSettings.Networks}}{{.NetworkID}}{{end}}' | head -1)
 
-  # Configure CRI-O to allow insecure pulls from the local registry
-  docker exec "$NODE" sh -c "
-    mkdir -p /etc/containers/registries.conf.d
-    cat > /etc/containers/registries.conf.d/nono-local.conf <<EOF
+    # Start registry if not already running
+    if ! docker ps --format '{{.Names}}' | grep -q "^${REGISTRY_NAME}$"; then
+      echo "==> Starting local Docker registry ($REGISTRY_NAME)..."
+      docker run -d --name "$REGISTRY_NAME" \
+        -p "127.0.0.1:${REGISTRY_PORT}:5000" \
+        --network "$KIND_NET" \
+        registry:2
+      sleep 2
+    fi
+
+    REGISTRY_IP=$(docker inspect "$REGISTRY_NAME" \
+      --format "{{(index .NetworkSettings.Networks \"${KIND_NET}\").IPAddress}}" 2>/dev/null || \
+      docker inspect "$REGISTRY_NAME" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{break}}{{end}}')
+
+    # Configure CRI-O to allow insecure pulls from the local registry
+    docker exec "$NODE" sh -c "
+      mkdir -p /etc/containers/registries.conf.d
+      cat > /etc/containers/registries.conf.d/nono-local.conf <<EOF
 [[registry]]
 location = \"${REGISTRY_IP}:5000\"
 insecure = true
 EOF
-    systemctl restart crio
-    sleep 3
-  "
+      systemctl restart crio
+      sleep 3
+    "
 
-  # Push and pull
-  LOCAL_IMAGE="${REGISTRY_IP}:5000/nono-nri:latest"
-  docker tag "$IMAGE" "localhost:${REGISTRY_PORT}/nono-nri:latest"
-  docker push "localhost:${REGISTRY_PORT}/nono-nri:latest"
-  docker exec "$NODE" crictl pull "$LOCAL_IMAGE"
+    # Push and pull
+    LOCAL_IMAGE="${REGISTRY_IP}:5000/nono-nri:latest"
+    docker tag "$IMAGE" "localhost:${REGISTRY_PORT}/nono-nri:latest"
+    docker push "localhost:${REGISTRY_PORT}/nono-nri:latest"
+    docker exec "$NODE" crictl pull "$LOCAL_IMAGE"
 
-  # Store registry info for later use
-  export REGISTRY_IP REGISTRY_PORT REGISTRY_NAME KIND_NET LOCAL_IMAGE
+    # Store registry info for later use
+    export REGISTRY_IP REGISTRY_PORT REGISTRY_NAME KIND_NET LOCAL_IMAGE
+  fi
 fi
 
 # ── Runtime-specific node configuration ──────────────────────────────────────
@@ -251,13 +270,14 @@ if [[ "$KATA" == "true" ]]; then
 fi
 
 echo "==> Applying DaemonSet..."
-if [[ "$RUNTIME" == "crio" ]]; then
-  # Rewrite image reference to point at the local registry
-  sed "s|image: nono-nri:latest|image: ${LOCAL_IMAGE}|g" \
-    "$REPO_ROOT/deploy/daemonset.yaml" | kubectl apply -f -
-else
-  kubectl apply -f "$REPO_ROOT/deploy/daemonset.yaml"
+# Always substitute the image tag so the daemonset matches whatever IMAGE was requested.
+DEPLOY_IMAGE="$IMAGE"
+if [[ "$RUNTIME" == "crio" && "$SKIP_BUILD" != "true" ]]; then
+  # For locally-built crio images the image was pushed to a local registry.
+  DEPLOY_IMAGE="$LOCAL_IMAGE"
 fi
+sed "s|image: nono-nri:latest|image: ${DEPLOY_IMAGE}|g" \
+  "$REPO_ROOT/deploy/daemonset.yaml" | kubectl apply -f -
 
 echo ""
 echo "==> Waiting for DaemonSet rollout..."
