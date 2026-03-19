@@ -18,7 +18,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RUNTIME="${RUNTIME:-containerd}"
 CLUSTER_NAME="${CLUSTER_NAME:-nono-${RUNTIME}}"
 IMAGE="${IMAGE:-nono-nri:latest}"
-KATA="${KATA:-true}"        # set KATA=false to skip Kata Containers installation
+KATA="${KATA:-false}"       # set KATA=true to install Kata Containers
+# Pre-built kata kernel image (published by the kata-kernel-landlock GHA workflow).
+# Derived from the git remote owner at runtime; override to use a custom build.
+#   KATA_KERNEL_IMAGE=ghcr.io/yourorg/kata-kernel-landlock:3.14.0
+KATA_KERNEL_IMAGE="${KATA_KERNEL_IMAGE:-}"
 SKIP_BUILD="${SKIP_BUILD:-false}"  # set SKIP_BUILD=true to use a pre-built / remote image
 
 # ── Validate runtime ──────────────────────────────────────────────────────────
@@ -153,6 +157,11 @@ if [[ "$KATA" == "true" ]]; then
     --version "$KATA_VERSION"
   echo "==> Kata Containers installed."
 
+  # kata-deploy's helm --wait only checks the helm release, not DaemonSet pod
+  # readiness.  Wait explicitly so the node files are present before we query them.
+  echo "==> Waiting for kata-deploy DaemonSet..."
+  kubectl rollout status daemonset/kata-deploy -n kube-system --timeout=300s
+
   # ── Kata node tuning for kind (nested KVM) ───────────────────────────────
   echo ""
   echo "==> Tuning Kata for nested-KVM kind environment..."
@@ -161,84 +170,127 @@ if [[ "$KATA" == "true" ]]; then
   #    The Docker default is 64 MB; 2 GB+ needed for kata VM memory.
   docker exec "$NODE" mount -o remount,size=16g /dev/shm
 
-  # 2. Use the host kernel inside the kata VM.
-  #    The kata-bundled kernel (6.18.15) lacks Landlock (CONFIG_SECURITY_LANDLOCK=n).
-  #    The host kernel has Landlock built-in (=y) and works in nested KVM when
-  #    kernel_irqchip=split is set.  vsock and virtiofs are modules (=m) on the
-  #    host, so we build a custom initrd that insmod's them before the kata-agent.
+  # 2. Build the kata kernel with Landlock LSM enabled.
+  #    The kata-bundled kernel has CONFIG_SECURITY_LANDLOCK=n.  We rebuild from
+  #    kata's own kernel source + patches with Landlock added.  The kata-shipped
+  #    initrd works unchanged: virtiofs and vsock are built-in (=y) in the kata
+  #    kernel config, so no custom initrd or insmod wrapper is needed.
 
-  HOST_KERN=$(docker exec "$NODE" uname -r)
   KATA_SHARE="/opt/kata/share/kata-containers"
   KATA_CFG="/opt/kata/share/defaults/kata-containers/runtimes/qemu/configuration-qemu.toml"
 
-  # 2a. Extract the uncompressed host vmlinux and copy into the kata directory.
-  EXTRACT_SCRIPT=$(docker exec "$NODE" sh -c "
-    find /usr/src -name extract-vmlinux 2>/dev/null | head -1
-  ")
-  if [ -z "$EXTRACT_SCRIPT" ]; then
-    docker exec "$NODE" sh -c "apt-get install -qq -y linux-headers-\$(uname -r) 2>/dev/null || true"
-    EXTRACT_SCRIPT=$(docker exec "$NODE" sh -c "find /usr/src -name extract-vmlinux 2>/dev/null | head -1")
-  fi
-
-  if [ -n "$EXTRACT_SCRIPT" ]; then
-    docker exec "$NODE" sh -c "
-      ${EXTRACT_SCRIPT} /boot/vmlinuz-${HOST_KERN} > ${KATA_SHARE}/vmlinux-host.container && \
-      chmod 644 ${KATA_SHARE}/vmlinux-host.container
-    "
-    echo "    Extracted host vmlinux ($(docker exec "$NODE" sh -c "ls -lh ${KATA_SHARE}/vmlinux-host.container | awk '{print \$5}'")"
-  else
-    # Fallback: copy directly into a temp dir on the host then docker cp
-    sudo /usr/src/linux-headers-$(uname -r)/scripts/extract-vmlinux /boot/vmlinuz-$(uname -r) > /tmp/_vmlinux-host 2>/dev/null || \
-      cp /boot/vmlinuz-$(uname -r) /tmp/_vmlinux-host
-    docker cp /tmp/_vmlinux-host "$NODE:${KATA_SHARE}/vmlinux-host.container"
-    docker exec "$NODE" chmod 644 "${KATA_SHARE}/vmlinux-host.container"
-    rm -f /tmp/_vmlinux-host
-  fi
-
-  # 2b. Build a custom initrd: kata-agent init + host kernel vsock/virtiofs modules.
-  INITRD_WORK=$(mktemp -d)
-  docker cp "$NODE:${KATA_SHARE}/kata-containers-initrd.img" "${INITRD_WORK}/kata-initrd.img"
-  (cd "$INITRD_WORK" && gzip -d -c kata-initrd.img | cpio -idm 2>/dev/null)
-
-  # Add host kernel modules (vsock + virtiofs).
-  KERN=$(uname -r)
-  MOD_DIR="${INITRD_WORK}/lib/modules/${KERN}/kernel"
-  mkdir -p "${MOD_DIR}/net/vmw_vsock" "${MOD_DIR}/fs/fuse"
-  for MOD_ZST in \
-    /lib/modules/${KERN}/kernel/net/vmw_vsock/vsock.ko.zst \
-    /lib/modules/${KERN}/kernel/net/vmw_vsock/vmw_vsock_virtio_transport_common.ko.zst \
-    /lib/modules/${KERN}/kernel/net/vmw_vsock/vmw_vsock_virtio_transport.ko.zst \
-    /lib/modules/${KERN}/kernel/fs/fuse/virtiofs.ko.zst; do
-    MOD=$(basename "${MOD_ZST}" .zst)
-    zstd -d "${MOD_ZST}" -o "${MOD_DIR}/$(basename $(dirname ${MOD_ZST}))/$(basename ${MOD_ZST} .zst)" -f -q
+  # Detect the Linux version by finding the versioned qemu kernel file.
+  # kata-deploy ships several vmlinuz variants; filter out dragonball/nvidia-gpu
+  # and the unversioned .container symlinks — what remains is the qemu kernel
+  # (e.g. vmlinuz-6.18.15-186).  Polling the actual file (not a symlink) avoids
+  # readlink -f false-positives where it returns a dangling or missing path.
+  # Poll up to 300 s: kata-deploy pod readiness and host file creation are not atomic.
+  _KERN_FILE=""
+  for _i in $(seq 1 300); do
+    _KERN_FILE=$(docker exec "$NODE" sh -c "
+      ls '${KATA_SHARE}'/vmlinuz-* 2>/dev/null \
+        | grep -v dragonball | grep -v nvidia | grep -vE '\\.container$' \
+        | head -1" 2>/dev/null || true)
+    [[ -n "$_KERN_FILE" ]] && break
+    [[ $((_i % 30)) -eq 0 ]] && echo "    Still waiting for kata kernel files... (${_i}s)"
+    sleep 1
   done
+  if [[ -z "$_KERN_FILE" ]]; then
+    echo "ERROR: kata qemu kernel not found in ${KATA_SHARE} after 300 s"
+    echo "  kata-deploy pod status:"
+    kubectl get pod -n kube-system -l app=kata-deploy -o wide 2>/dev/null || true
+    echo "  contents of ${KATA_SHARE}:"
+    docker exec "$NODE" ls "${KATA_SHARE}" 2>/dev/null || true
+    exit 1
+  fi
+  LINUX_VER=$(basename "${_KERN_FILE}" | sed 's/vmlinuz-//;s/-[0-9]*$//')
+  echo "    Kata Linux version: ${LINUX_VER}"
 
-  # Wrap /sbin/init: insmod modules then exec the real kata-agent.
-  cp "${INITRD_WORK}/sbin/init" "${INITRD_WORK}/sbin/kata-agent-real"
-  cat > "${INITRD_WORK}/sbin/init" <<INITSCRIPT
-#!/bin/sh
-insmod /lib/modules/${KERN}/kernel/net/vmw_vsock/vsock.ko 2>/dev/null || true
-insmod /lib/modules/${KERN}/kernel/net/vmw_vsock/vmw_vsock_virtio_transport_common.ko 2>/dev/null || true
-insmod /lib/modules/${KERN}/kernel/net/vmw_vsock/vmw_vsock_virtio_transport.ko 2>/dev/null || true
-insmod /lib/modules/${KERN}/kernel/fs/fuse/virtiofs.ko 2>/dev/null || true
-exec /sbin/kata-agent-real "\$@"
-INITSCRIPT
-  chmod 755 "${INITRD_WORK}/sbin/init"
+  # Host-side cache: skip pull/build if the kernel was already fetched.
+  KATA_KERN_CACHE="/tmp/kata-vmlinux-landlock-${LINUX_VER}.elf"
 
-  # Repack and deploy.
-  (cd "$INITRD_WORK" && find . | cpio -o -H newc 2>/dev/null | gzip -9 > /tmp/_kata-initrd-host.img)
-  docker cp /tmp/_kata-initrd-host.img "$NODE:${KATA_SHARE}/kata-initrd-host.img"
-  docker exec "$NODE" sh -c "chown root:root ${KATA_SHARE}/kata-initrd-host.img && chmod 644 ${KATA_SHARE}/kata-initrd-host.img"
-  rm -rf "$INITRD_WORK" /tmp/_kata-initrd-host.img
-  echo "    Custom initrd built with host kernel modules."
+  if [ -f "${KATA_KERN_CACHE}" ]; then
+    echo "    Using cached Landlock kernel: ${KATA_KERN_CACHE}"
+  else
+    # Resolve the image name: derive owner from git remote if not overridden.
+    if [ -z "${KATA_KERNEL_IMAGE}" ]; then
+      _GH_OWNER=$(git -C "${SCRIPT_DIR}" remote get-url origin 2>/dev/null \
+        | sed -n 's|.*github\.com[:/]\([^/]*\)/.*|\1|p')
+      KATA_KERNEL_IMAGE="ghcr.io/${_GH_OWNER:-k8s-nono}/kata-kernel-landlock:${KATA_VERSION}"
+    fi
+    echo "    Kata kernel image: ${KATA_KERNEL_IMAGE}"
 
-  # 2c. Patch kata QEMU config.
-  docker exec "$NODE" sed -i "
-    s|^kernel = .*|kernel = \"${KATA_SHARE}/vmlinux-host.container\"|;
-    s|^initrd = .*|initrd = \"${KATA_SHARE}/kata-initrd-host.img\"|;
-    s|^machine_accelerators = .*|machine_accelerators = \"kernel_irqchip=split\"|
-  " "$KATA_CFG"
-  echo "    Kata QEMU config patched (host kernel, kernel_irqchip=split)."
+    # Try pulling the pre-built image published by the kata-kernel-landlock GHA.
+    if docker pull "${KATA_KERNEL_IMAGE}" 2>/dev/null; then
+      _CTR=$(docker create "${KATA_KERNEL_IMAGE}")
+      docker cp "${_CTR}:/vmlinux" "${KATA_KERN_CACHE}"
+      docker rm "${_CTR}" >/dev/null
+      echo "    Kernel extracted from image."
+    else
+      # Fallback: build from kata source (used when the image hasn't been
+      # published yet, e.g. on first run before GHA has executed).
+      echo "    Pre-built image not available — building from source (~20-40 min)..."
+
+      sudo apt-get install -qq -y \
+        build-essential flex bison libssl-dev libelf-dev bc dwarves \
+        libncurses-dev rsync cpio curl 2>/dev/null || true
+
+      if ! command -v yq &>/dev/null; then
+        sudo wget -qO /usr/local/bin/yq \
+          "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64"
+        sudo chmod +x /usr/local/bin/yq
+      fi
+
+      KATA_BUILD_DIR=$(mktemp -d /tmp/kata-kern-XXXXXX)
+
+      git clone --quiet --depth 1 --filter=blob:none --sparse \
+        -b "${KATA_VERSION}" \
+        https://github.com/kata-containers/kata-containers \
+        "${KATA_BUILD_DIR}/kata-src"
+      (cd "${KATA_BUILD_DIR}/kata-src" && \
+        git sparse-checkout set tools/packaging/kernel tools/packaging/scripts && \
+        git show HEAD:versions.yaml > versions.yaml && \
+        git show HEAD:VERSION > VERSION)
+
+      KERN_PKG="${KATA_BUILD_DIR}/kata-src/tools/packaging/kernel"
+      (cd "${KERN_PKG}" && ARCH=x86_64 ./build-kernel.sh setup)
+
+      KERN_SRC=$(ls -d "${KERN_PKG}/kata-linux-"* 2>/dev/null | head -1)
+      [ -z "${KERN_SRC}" ] && { echo "ERROR: kernel source not found"; exit 1; }
+
+      (cd "${KERN_SRC}" && ./scripts/config --enable SECURITY_LANDLOCK)
+      CURRENT_LSM=$(cd "${KERN_SRC}" && ./scripts/config --state LSM 2>/dev/null | tr -d '"')
+      if [ -z "${CURRENT_LSM}" ]; then
+        (cd "${KERN_SRC}" && ./scripts/config --set-str LSM "landlock")
+      elif ! echo "${CURRENT_LSM}" | grep -q "landlock"; then
+        (cd "${KERN_SRC}" && ./scripts/config --set-str LSM "landlock,${CURRENT_LSM}")
+      fi
+      (cd "${KERN_SRC}" && make ARCH=x86_64 olddefconfig 2>/dev/null)
+      (cd "${KERN_SRC}" && make ARCH=x86_64 -j"$(nproc)" vmlinux)
+
+      cp "${KERN_SRC}/vmlinux" "${KATA_KERN_CACHE}"
+      rm -rf "${KATA_BUILD_DIR}"
+      echo "    Build complete."
+    fi
+  fi
+
+  # Deploy the Landlock-enabled vmlinux into the kata share.
+  KATA_LANDLOCK_KERNEL="${KATA_SHARE}/vmlinux-landlock.container"
+  docker cp "${KATA_KERN_CACHE}" "${NODE}:${KATA_LANDLOCK_KERNEL}"
+  docker exec "$NODE" chmod 644 "${KATA_LANDLOCK_KERNEL}"
+  echo "    Deployed: ${KATA_LANDLOCK_KERNEL}"
+
+  # Patch kata QEMU config: new kernel path; leave initrd unchanged.
+  docker exec "$NODE" sed -i \
+    "s|^kernel = .*|kernel = \"${KATA_LANDLOCK_KERNEL}\"|;
+     s|^machine_accelerators = .*|machine_accelerators = \"kernel_irqchip=split\"|" \
+    "${KATA_CFG}"
+  # Add machine_accelerators if the line was absent in the default config.
+  docker exec "$NODE" sh -c "
+    grep -q '^machine_accelerators' '${KATA_CFG}' || \
+      sed -i 's|\(\[hypervisor.qemu\]\)|\1\nmachine_accelerators = \"kernel_irqchip=split\"|' '${KATA_CFG}'
+  "
+  echo "    Kata QEMU config patched (Landlock kernel, kata initrd, kernel_irqchip=split)."
 fi
 
 # ── Install TOML config ───────────────────────────────────────────────────────

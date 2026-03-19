@@ -1,0 +1,106 @@
+name: kata-kernel-landlock
+
+# Builds the kata-containers kernel with CONFIG_SECURITY_LANDLOCK=y and
+# publishes it as a container image to GHCR.
+#
+# Image: ghcr.io/<owner>/kata-kernel-landlock:<kata-version>
+#
+# The build is skipped if the image already exists for the current kata release,
+# so the weekly schedule is cheap when no new kata version has been released.
+
+on:
+  workflow_dispatch:
+    inputs:
+      kata_version:
+        description: "kata-containers release tag (e.g. 3.14.0). Defaults to latest."
+        required: false
+        default: ""
+      force_rebuild:
+        description: "Rebuild and push even if the image already exists"
+        type: boolean
+        default: false
+  schedule:
+    # Every Monday 06:00 UTC — picks up new kata releases automatically.
+    - cron: "0 6 * * 1"
+  push:
+    paths:
+      - "deploy/kind/kata-kernel/Dockerfile"
+      - ".github/workflows/kata-kernel.yaml"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/${{ github.repository_owner }}/kata-kernel-landlock
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve kata version
+        id: kata
+        run: |
+          VERSION="${{ inputs.kata_version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION=$(curl -sSL \
+              https://api.github.com/repos/kata-containers/kata-containers/releases/latest \
+              | grep '"tag_name"' \
+              | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Kata version: $VERSION"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if image already exists
+        id: check
+        run: |
+          IMAGE="${{ env.IMAGE }}:${{ steps.kata.outputs.version }}"
+          if docker manifest inspect "$IMAGE" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Image exists: $IMAGE — skipping build."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Image not found: $IMAGE — will build."
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.check.outputs.exists != 'true' || inputs.force_rebuild
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        if: steps.check.outputs.exists != 'true' || inputs.force_rebuild
+        uses: docker/build-push-action@v6
+        with:
+          context: deploy/kind/kata-kernel
+          push: true
+          platforms: linux/amd64
+          build-args: |
+            KATA_VERSION=${{ steps.kata.outputs.version }}
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.kata.outputs.version }}
+            ${{ env.IMAGE }}:latest
+          # Layer cache keyed by kata version so apt/clone layers are reused
+          # when force_rebuild is used or the Dockerfile itself changes.
+          cache-from: type=gha,scope=kata-kernel-${{ steps.kata.outputs.version }}
+          cache-to: type=gha,mode=max,scope=kata-kernel-${{ steps.kata.outputs.version }}
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.check.outputs.exists }}" = "true" ] && [ "${{ inputs.force_rebuild }}" != "true" ]; then
+            echo "### Skipped (image already exists)" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`${{ env.IMAGE }}:${{ steps.kata.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Published" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`${{ env.IMAGE }}:${{ steps.kata.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`${{ env.IMAGE }}:latest\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
