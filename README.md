@@ -1,5 +1,9 @@
 # nono-nri
 
+> **⚠️ Proof of concept — not for production use.**
+> This is experimental test code. It is provided as-is with no guarantees of
+> stability, security, or support.
+
 An [NRI (Node Resource Interface)](https://github.com/containerd/nri) plugin for Kubernetes that
 transparently sandboxes container commands using [nono](https://nono.sh), a kernel-enforced
 sandbox CLI built on Linux Landlock.
@@ -205,4 +209,4 @@ deploy/
 
 ## License
 
-Apache 2.0
+[Apache 2.0](LICENSE)
