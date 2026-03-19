@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: python-dev-baseline
+  namespace: default
+  labels:
+    app: nono-demo
+    mode: baseline
+spec:
+  restartPolicy: Never
+  containers:
+    - name: demo
+      image: nono-demo-python:latest
+      imagePullPolicy: IfNotPresent
+      command: ["sleep", "infinity"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INTERACTIVE USAGE — exec directly, no sandbox active
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#   kubectl exec -it python-dev-baseline -- bash
+#
+# THINGS TO TRY (all allowed — no sandbox):
+#   echo "1.2.3.4 evil" >> /etc/hosts
+#   echo "#!/bin/sh" > /usr/local/bin/exploit
+#   cat /etc/shadow
+#   cat /etc/passwd
+#   python3 --version
+#   echo "ok" > /tmp/workfile
+# ─────────────────────────────────────────────────────────────────────────────

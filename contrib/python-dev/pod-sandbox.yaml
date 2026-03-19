@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: python-dev-sandbox
+  namespace: default
+  labels:
+    app: nono-demo
+    mode: sandbox
+  annotations:
+    nono.sh/profile: "default"
+spec:
+  runtimeClassName: nono-sandbox
+  restartPolicy: Never
+  containers:
+    - name: demo
+      image: nono-demo-python:latest
+      imagePullPolicy: IfNotPresent
+      # NRI plugin wraps this at container creation time into:
+      #   /nono/nono wrap --profile default -- sleep infinity
+      # nono applies Landlock, then exec()s into sleep — PID 1 is sandboxed.
+      command: ["sleep", "infinity"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INTERACTIVE USAGE
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# ⚠  DO NOT use plain `kubectl exec -- bash`:
+#
+#   kubectl exec -it python-dev-sandbox -- bash   # ← NOT sandboxed
+#
+#   kubectl exec spawns processes with ppid=0 via the container runtime,
+#   not as children of PID 1. Landlock is only inherited through the
+#   fork/exec chain from a sandboxed parent, so these processes receive
+#   no restrictions.
+#
+# ✓  Invoke nono wrap explicitly to get a sandboxed shell:
+#
+#   kubectl exec -it python-dev-sandbox -- \
+#     /nono/nono wrap --profile default -- bash
+#
+#   nono applies Landlock to itself, then exec()s into bash.
+#   The resulting bash session (and all its children) is fully sandboxed.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# THINGS TO TRY inside the sandboxed shell
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#   Blocked by Landlock (Landlock filesystem isolation):
+#     echo "1.2.3.4 evil" >> /etc/hosts          # host poisoning
+#     echo "#!/bin/sh" > /usr/local/bin/exploit   # backdoor binary
+#     cat /etc/shadow                             # credential theft
+#     cat /etc/passwd                             # user enumeration
+#     echo "import os" > \
+#       /usr/local/lib/python3.12/site-packages/evil.py  # pkg injection
+#
+#   Allowed (runtime / scratch space unaffected):
+#     python3 --version
+#     python3 -c 'print("hello")'
+#     echo "ok" > /tmp/workfile
+# ─────────────────────────────────────────────────────────────────────────────

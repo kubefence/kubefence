@@ -62,7 +62,51 @@ An asciinema recording of the python-dev example (containerd cluster) is include
 asciinema play contrib/python-dev/demo.cast
 ```
 
-## Manual apply
+## Interactive pods (manual exec)
+
+`pod-baseline.yaml` and `pod-sandbox.yaml` run `sleep infinity` so you can exec in
+and try commands by hand.
+
+```bash
+# Build and load image first (see Manual apply below), then:
+kubectl apply -f contrib/python-dev/pod-baseline.yaml
+kubectl apply -f contrib/python-dev/pod-sandbox.yaml
+kubectl wait --for=condition=ready pod/python-dev-baseline pod/python-dev-sandbox --timeout=60s
+```
+
+**Baseline** — exec directly, no sandbox:
+```bash
+kubectl exec -it python-dev-baseline -- bash
+# All of the following succeed:
+echo "1.2.3.4 evil" >> /etc/hosts
+cat /etc/shadow
+echo "x" > /usr/local/bin/exploit
+python3 --version
+```
+
+**Sandbox** — `kubectl exec` bypasses Landlock (processes spawned by the container
+runtime have `ppid=0`, not descended from the sandboxed PID 1). You must invoke
+`nono wrap` explicitly to enter a sandboxed shell:
+
+```bash
+# ✗ Wrong — exec'd bash has ppid=0, Landlock not inherited, nothing is blocked:
+kubectl exec -it python-dev-sandbox -- bash
+
+# ✓ Correct — nono wrap applies Landlock, then exec()s into bash:
+kubectl exec -it python-dev-sandbox -- /nono/nono wrap --profile default -- bash
+# Inside this shell:
+echo "1.2.3.4 evil" >> /etc/hosts   # Permission denied (BLOCKED)
+cat /etc/shadow                      # Permission denied (BLOCKED)
+python3 --version                    # ALLOWED
+echo "ok" > /tmp/workfile            # ALLOWED
+```
+
+Cleanup:
+```bash
+kubectl delete pod python-dev-baseline python-dev-sandbox
+```
+
+## Manual apply (automated Jobs)
 
 ```bash
 # Build and load the image (containerd example)
