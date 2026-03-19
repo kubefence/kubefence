@@ -243,8 +243,12 @@ TOMLEOF"
 
 # ── Apply Kubernetes manifests ────────────────────────────────────────────────
 echo ""
-echo "==> Applying RuntimeClasses (nono-sandbox, kata-nono-sandbox)..."
+echo "==> Applying RuntimeClass (nono-sandbox)..."
 kubectl apply -f "$REPO_ROOT/deploy/runtimeclass.yaml"
+if [[ "$KATA" == "true" ]]; then
+  echo "==> Applying RuntimeClass (kata-nono-sandbox)..."
+  kubectl apply -f "$REPO_ROOT/deploy/runtimeclass-kata.yaml"
+fi
 
 echo "==> Applying DaemonSet..."
 if [[ "$RUNTIME" == "crio" ]]; then
