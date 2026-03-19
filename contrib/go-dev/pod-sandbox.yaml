@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: go-dev-sandbox
+  namespace: default
+  labels:
+    app: nono-demo
+    mode: sandbox
+  annotations:
+    nono.sh/profile: "default"
+spec:
+  runtimeClassName: nono-sandbox
+  restartPolicy: Never
+  containers:
+    - name: demo
+      image: nono-demo-go:latest
+      imagePullPolicy: IfNotPresent
+      # NRI plugin wraps this at container creation time into:
+      #   /nono/nono wrap --profile default -- sleep infinity
+      # nono applies Landlock, then exec()s into sleep — PID 1 is sandboxed.
+      command: ["sleep", "infinity"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INTERACTIVE USAGE
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# The demo image replaces /bin/bash with a nono wrapper (see Dockerfile).
+# When /nono/nono is bind-mounted by NRI the wrapper automatically
+# invokes nono wrap before handing off to bash.real — so plain exec works:
+#
+#   kubectl exec -it go-dev-sandbox -- bash   ← sandboxed automatically
+#
+# THINGS TO TRY inside the sandboxed shell:
+#
+#   Blocked by Landlock:
+#     echo "1.2.3.4 evil" >> /etc/hosts
+#     echo "#!/bin/sh" > /usr/local/bin/exploit
+#     cat /etc/shadow
+#     cat /etc/passwd
+#     echo "package main" > /usr/local/go/src/evil/main.go
+#
+#   Allowed (runtime / scratch space):
+#     go version
+#     go env GOPATH
+#     echo "ok" > /tmp/workfile
+# ─────────────────────────────────────────────────────────────────────────────
