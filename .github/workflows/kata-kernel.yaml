@@ -5,29 +5,33 @@ name: kata-kernel-landlock
 #
 # Image: ghcr.io/<owner>/kata-kernel-landlock:<kata-version>
 #
-# The build is skipped if the image already exists for the current kata release,
-# so the weekly schedule is cheap when no new kata version has been released.
+# Triggered automatically on every nono-nri release so the kernel image
+# is always in sync with the pinned KATA_VERSION below.
+# The build is skipped if the image already exists for that kata version.
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       kata_version:
-        description: "kata-containers release tag (e.g. 3.14.0). Defaults to latest."
+        description: "kata-containers release tag (e.g. 3.28.0). Defaults to KATA_VERSION below."
         required: false
         default: ""
       force_rebuild:
         description: "Rebuild and push even if the image already exists"
         type: boolean
         default: false
-  schedule:
-    # Every Monday 06:00 UTC — picks up new kata releases automatically.
-    - cron: "0 6 * * 1"
   push:
     paths:
       - "deploy/kind/kata-kernel/Dockerfile"
       - ".github/workflows/kata-kernel.yaml"
 
+# Pinned kata-containers version used by all deployment tooling.
+# Update this and KATA_VERSION in deploy/kind/deploy.sh together when
+# upgrading kata.
 env:
+  KATA_VERSION: "3.28.0"
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/${{ github.repository_owner }}/kata-kernel-landlock
 
@@ -44,12 +48,10 @@ jobs:
       - name: Resolve kata version
         id: kata
         run: |
+          # workflow_dispatch can override; otherwise use the pinned env default.
           VERSION="${{ inputs.kata_version }}"
           if [ -z "$VERSION" ]; then
-            VERSION=$(curl -sSL \
-              https://api.github.com/repos/kata-containers/kata-containers/releases/latest \
-              | grep '"tag_name"' \
-              | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+            VERSION="${{ env.KATA_VERSION }}"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Kata version: $VERSION"

@@ -89,7 +89,8 @@ RUNTIME=crio bash deploy/kind/deploy.sh
 | `IMAGE` | `nono-nri:latest` | Plugin image tag (set to `ghcr.io/bpradipt/kubefence:latest` to use the published image) |
 | `SKIP_BUILD` | `false` | Skip `make docker-build`; pull `IMAGE` from a registry instead |
 | `KATA` | `false` | Install Kata Containers with a Landlock-enabled kernel (`true`/`false`). |
-| `KATA_KERNEL_IMAGE` | auto | Pre-built kernel image (e.g. `ghcr.io/yourorg/kata-kernel-landlock:3.14.0`). Derived from the git remote owner when unset. Falls back to a local source build if the image is unavailable. Cached in `/tmp/kata-vmlinux-landlock-<ver>.elf`. |
+| `KATA_VERSION` | `3.28.0` | kata-containers release to install. Keep in sync with `KATA_VERSION` in `.github/workflows/kata-kernel.yaml`. |
+| `KATA_KERNEL_IMAGE` | auto | Pre-built kernel image (e.g. `ghcr.io/yourorg/kata-kernel-landlock:3.28.0`). Derived from the git remote owner when unset. Falls back to a local source build if the image is unavailable. Cached in `/tmp/kata-vmlinux-landlock-<ver>.elf`. |
 | `REGISTRY_NAME` | `nono-nri-registry` | Local registry container name (crio only) |
 | `REGISTRY_PORT` | `5100` | Local registry port on the host (crio only) |
 

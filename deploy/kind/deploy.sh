@@ -6,10 +6,12 @@
 #   RUNTIME=crio      bash deploy/kind/deploy.sh
 #
 # Environment variables:
-#   RUNTIME       containerd (default) | crio
-#   CLUSTER_NAME  cluster name (default: nono-<runtime>)
-#   IMAGE         plugin image tag (default: nono-nri:latest)
-#   SKIP_BUILD    true to skip docker build and pull IMAGE from a registry instead
+#   RUNTIME         containerd (default) | crio
+#   CLUSTER_NAME    cluster name (default: nono-<runtime>)
+#   IMAGE           plugin image tag (default: nono-nri:latest)
+#   SKIP_BUILD      true to skip docker build and pull IMAGE from a registry instead
+#   KATA_VERSION    kata-containers release to install (default: 3.28.0)
+#   KATA_KERNEL_IMAGE  pre-built Landlock kernel image; derived from git remote if unset
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,10 +20,13 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RUNTIME="${RUNTIME:-containerd}"
 CLUSTER_NAME="${CLUSTER_NAME:-nono-${RUNTIME}}"
 IMAGE="${IMAGE:-nono-nri:latest}"
-KATA="${KATA:-false}"       # set KATA=true to install Kata Containers
+KATA="${KATA:-false}"            # set KATA=true to install Kata Containers
+# Pinned kata-containers version. Keep in sync with KATA_VERSION in
+# .github/workflows/kata-kernel.yaml when upgrading kata.
+KATA_VERSION="${KATA_VERSION:-3.28.0}"
 # Pre-built kata kernel image (published by the kata-kernel-landlock GHA workflow).
 # Derived from the git remote owner at runtime; override to use a custom build.
-#   KATA_KERNEL_IMAGE=ghcr.io/yourorg/kata-kernel-landlock:3.14.0
+#   KATA_KERNEL_IMAGE=ghcr.io/yourorg/kata-kernel-landlock:3.28.0
 KATA_KERNEL_IMAGE="${KATA_KERNEL_IMAGE:-}"
 SKIP_BUILD="${SKIP_BUILD:-false}"  # set SKIP_BUILD=true to use a pre-built / remote image
 
@@ -146,8 +151,6 @@ fi
 if [[ "$KATA" == "true" ]]; then
   echo ""
   echo "==> Installing Kata Containers (kata-deploy helm chart)..."
-  KATA_VERSION=$(curl -sSL https://api.github.com/repos/kata-containers/kata-containers/releases/latest \
-    | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
   echo "    kata version: $KATA_VERSION"
   helm install kata-deploy \
     --namespace kube-system \
@@ -280,11 +283,26 @@ if [[ "$KATA" == "true" ]]; then
   docker exec "$NODE" chmod 644 "${KATA_LANDLOCK_KERNEL}"
   echo "    Deployed: ${KATA_LANDLOCK_KERNEL}"
 
+  # Wait for the QEMU config file to appear (kata-deploy writes it asynchronously).
+  echo "==> Waiting for kata QEMU config file..."
+  for _i in $(seq 1 120); do
+    docker exec "$NODE" test -f "${KATA_CFG}" 2>/dev/null && break
+    [[ $((_i % 15)) -eq 0 ]] && echo "    Still waiting for ${KATA_CFG}... (${_i}s)"
+    sleep 1
+  done
+  if ! docker exec "$NODE" test -f "${KATA_CFG}" 2>/dev/null; then
+    echo "ERROR: kata QEMU config not found at ${KATA_CFG} after 120 s"
+    docker exec "$NODE" find /opt/kata/share/defaults -name '*.toml' 2>/dev/null || true
+    exit 1
+  fi
+
   # Patch kata QEMU config: new kernel path; leave initrd unchanged.
-  docker exec "$NODE" sed -i \
-    "s|^kernel = .*|kernel = \"${KATA_LANDLOCK_KERNEL}\"|;
-     s|^machine_accelerators = .*|machine_accelerators = \"kernel_irqchip=split\"|" \
-    "${KATA_CFG}"
+  docker exec "$NODE" sh -c "
+  sed -i \
+    -e 's|^kernel = .*|kernel = \"${KATA_LANDLOCK_KERNEL}\"|' \
+    -e 's|^machine_accelerators = .*|machine_accelerators = \"kernel_irqchip=split\"|' \
+    ${KATA_CFG}
+  "
   # Add machine_accelerators if the line was absent in the default config.
   docker exec "$NODE" sh -c "
     grep -q '^machine_accelerators' '${KATA_CFG}' || \
