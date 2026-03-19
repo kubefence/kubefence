@@ -1,0 +1,47 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: python-dev-sandbox
+  namespace: default
+  labels:
+    app: nono-demo
+    profile: python-dev
+    mode: sandbox
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      annotations:
+        nono.sh/profile: "python-dev"
+    spec:
+      runtimeClassName: nono-sandbox
+      restartPolicy: Never
+      containers:
+        - name: demo
+          image: nono-demo-python:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set +e
+              echo "============================================"
+              echo " Profile: python-dev | Mode: SANDBOX"
+              echo " (runtimeClassName: nono-sandbox)"
+              echo "============================================"
+              echo ""
+              touch /tmp/nono-demo-file 2>/dev/null || true
+              chk() { printf '  %-50s' "$1"; shift; "$@" >/dev/null 2>&1 && echo "ALLOWED" || echo "BLOCKED"; }
+
+              echo "--- dangerous_commands (expected: BLOCKED) ---"
+              chk "rm -f /tmp/nono-demo-file"              rm -f /tmp/nono-demo-file
+              chk "dd if=/dev/zero of=/tmp/dd-out"         dd if=/dev/zero of=/tmp/dd-out bs=1 count=1
+              chk "chmod 777 /etc/hostname"                chmod 777 /etc/hostname
+              chk "pip --version"                          pip --version
+              chk "apt-get install curl (dry-run)"         apt-get install -y --dry-run curl
+              echo ""
+              echo "--- python-dev runtime (expected: ALLOWED) ---"
+              chk "python3 --version"                      python3 --version
+              chk "python3 -c print"                       python3 -c 'print("hello from nono sandbox")'
+              echo ""
+              echo "Done."
