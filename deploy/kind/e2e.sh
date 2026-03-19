@@ -190,22 +190,33 @@ if [[ -n "$CTR_ID" ]]; then
     BUNDLE="/var/run/containers/storage/overlay-containers/${CTR_ID}/userdata/config.json"
   fi
 
-  # Use python3 on the Kind node (available on all supported node images)
-  OCI_ARGS=$(docker exec "$NODE" python3 -c \
-    "import json; d=json.load(open('${BUNDLE}')); print(d['process']['args'][0])" \
-    2>/dev/null || echo "")
+  # Parse OCI bundle using jq (available on kindest/node) or python3 (CRI-O node)
+  _jq_or_python() {
+    local node="$1" file="$2" jq_expr="$3" py_expr="$4"
+    docker exec "$node" sh -c "
+      if command -v jq >/dev/null 2>&1; then
+        jq -r '$jq_expr' '$file' 2>/dev/null
+      elif command -v python3 >/dev/null 2>&1; then
+        python3 -c \"$py_expr\" 2>/dev/null
+      fi
+    " 2>/dev/null || echo ""
+  }
+
+  OCI_ARGS=$(_jq_or_python "$NODE" "$BUNDLE" \
+    '.process.args[0]' \
+    "import json; d=json.load(open('${BUNDLE}')); print(d['process']['args'][0])")
   check_contains "OCI bundle process.args[0] == '/nono/nono' (SetArgs applied)" \
     "$OCI_ARGS" "/nono/nono"
 
-  OCI_SEP=$(docker exec "$NODE" python3 -c \
-    "import json; d=json.load(open('${BUNDLE}')); print('ok' if '--' in d['process']['args'] else '')" \
-    2>/dev/null || echo "")
+  OCI_SEP=$(_jq_or_python "$NODE" "$BUNDLE" \
+    'if (.process.args | index("--")) then "ok" else "" end' \
+    "import json; d=json.load(open('${BUNDLE}')); print('ok' if '--' in d['process']['args'] else '')")
   check_contains "OCI bundle process.args contains '--' separator" \
     "$OCI_SEP" "ok"
 
-  OCI_MOUNT=$(docker exec "$NODE" python3 -c \
-    "import json; d=json.load(open('${BUNDLE}')); m=[x for x in d.get('mounts',[]) if x.get('destination')=='/nono']; print('ok' if m else '')" \
-    2>/dev/null || echo "")
+  OCI_MOUNT=$(_jq_or_python "$NODE" "$BUNDLE" \
+    '[.mounts[]? | select(.destination == "/nono")] | if length > 0 then "ok" else "" end' \
+    "import json; d=json.load(open('${BUNDLE}')); m=[x for x in d.get('mounts',[]) if x.get('destination')=='/nono']; print('ok' if m else '')")
   check_contains "OCI bundle has /nono bind mount (AddMount applied)" "$OCI_MOUNT" "ok"
 fi
 
