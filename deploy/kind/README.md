@@ -12,7 +12,6 @@ cd kubefence
 
 IMAGE=ghcr.io/bpradipt/kubefence:latest \
 SKIP_BUILD=true \
-KATA=false \
 bash deploy/kind/deploy.sh
 ```
 
@@ -23,6 +22,90 @@ RUNTIME=containerd CLUSTER_NAME=nono-containerd bash deploy/kind/e2e.sh
 ```
 
 Tear down when done:
+
+```bash
+kind delete cluster --name nono-containerd
+```
+
+## Kata Containers deployment
+
+`deploy.sh` can install Kata Containers alongside nono-nri by setting `KATA=true`.
+It installs Kata via the official helm chart, replaces the bundled guest kernel with
+a Landlock-enabled build, patches the QEMU config, and registers the
+`kata-nono-sandbox` RuntimeClass — all in one step.
+
+### Prerequisites
+
+- Everything in the base quick start (Docker, Kind v0.20+, kubectl, helm)
+- **KVM:** the host must expose `/dev/kvm` to Docker containers. Verify with:
+  ```bash
+  docker run --rm --device /dev/kvm alpine sh -c 'ls /dev/kvm && echo ok'
+  ```
+  On most Linux hosts this works out of the box.
+
+### Deploy
+
+```bash
+KATA=true \
+SKIP_BUILD=true \
+IMAGE=ghcr.io/bpradipt/kubefence:latest \
+KATA_KERNEL_IMAGE=ghcr.io/bpradipt/kata-kernel-landlock:3.28.0 \
+bash deploy/kind/deploy.sh
+```
+
+`KATA_KERNEL_IMAGE` points to a pre-built guest kernel with
+`CONFIG_SECURITY_LANDLOCK=y` published by the `kata-kernel` CI workflow. If you
+omit this variable the script derives the image from the git remote owner; if
+the image isn't available it falls back to a local build (~20-40 min).
+
+### How it works
+
+The deploy script performs these extra steps when `KATA=true`:
+
+1. **Installs Kata** via `helm install kata-deploy` (pinned to `KATA_VERSION=3.28.0`).
+2. **Expands `/dev/shm`** on the kind node to 16 GB (kata uses memory-backend-file for NUMA).
+3. **Pulls the Landlock kernel** from `KATA_KERNEL_IMAGE`, extracts `/vmlinux`, and
+   caches it at `/tmp/kata-vmlinux-landlock-<linux-ver>.elf` on the host.
+4. **Copies the kernel** into the node at `/opt/kata/share/kata-containers/vmlinux-landlock.container`.
+5. **Patches the QEMU config** (`configuration-qemu.toml`):
+   - Sets `kernel` to the Landlock-enabled vmlinux.
+   - Sets `machine_accelerators = "kernel_irqchip=split"` (required for nested-KVM with Kind).
+6. **Applies `deploy/runtimeclass-kata.yaml`** — registers the `kata-nono-sandbox`
+   RuntimeClass (handler: `kata-qemu`).
+
+The nono binary is delivered to the Kata VM via a virtiofs bind-mount, exactly
+as for runc containers.
+
+### Running workloads
+
+Use the `kata-nono-sandbox` RuntimeClass to run a pod inside a QEMU/KVM micro-VM
+with nono sandboxing applied:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-kata-pod
+  annotations:
+    nono.sh/profile: "default"
+spec:
+  runtimeClassName: kata-nono-sandbox
+  containers:
+    - name: app
+      image: ubuntu:22.04
+      command: ["sleep", "infinity"]
+```
+
+### Run e2e tests
+
+The test suite automatically runs Test 5 (Kata + nono) when the `kata-nono-sandbox`
+RuntimeClass is present:
+
+```bash
+RUNTIME=containerd CLUSTER_NAME=nono-containerd bash deploy/kind/e2e.sh
+```
+
+### Tear down
 
 ```bash
 kind delete cluster --name nono-containerd

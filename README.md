@@ -95,7 +95,6 @@ cd kubefence
 
 IMAGE=ghcr.io/bpradipt/kubefence:latest \
 SKIP_BUILD=true \
-KATA=false \
 bash deploy/kind/deploy.sh
 
 # Run e2e tests
@@ -103,6 +102,36 @@ RUNTIME=containerd CLUSTER_NAME=nono-containerd bash deploy/kind/e2e.sh
 
 # Tear down
 kind delete cluster --name nono-containerd
+```
+
+**With Kata Containers (QEMU/KVM micro-VMs):**
+
+Requires a host with KVM support. The deploy script installs Kata via helm,
+patches the QEMU config with a Landlock-enabled kernel, and registers the
+`kata-nono-sandbox` RuntimeClass automatically.
+
+```bash
+KATA=true \
+SKIP_BUILD=true \
+IMAGE=ghcr.io/bpradipt/kubefence:latest \
+KATA_KERNEL_IMAGE=ghcr.io/bpradipt/kata-kernel-landlock:3.28.0 \
+bash deploy/kind/deploy.sh
+
+# Run e2e tests (includes Test 5: nono injection inside Kata VM)
+RUNTIME=containerd CLUSTER_NAME=nono-containerd bash deploy/kind/e2e.sh
+
+# Tear down
+kind delete cluster --name nono-containerd
+```
+
+Use the `kata-nono-sandbox` RuntimeClass to run workloads inside Kata VMs with nono:
+
+```yaml
+spec:
+  runtimeClassName: kata-nono-sandbox
+  containers:
+    - name: myapp
+      image: myimage:latest
 ```
 
 **Building from source:**
@@ -222,6 +251,7 @@ socket_path = ""
 |----------|---------|-------------|
 | `lint` | push/PR to main | `gofmt`, `go vet`, `go mod tidy`, `go test -race` |
 | `release` | GitHub release published | Downloads nono binary, builds and pushes `ghcr.io/bpradipt/kubefence` to GHCR |
+| `kata-kernel` | weekly + `workflow_dispatch` + release | Builds a kata guest kernel with `CONFIG_SECURITY_LANDLOCK=y` and pushes `ghcr.io/bpradipt/kata-kernel-landlock:<kata-version>` to GHCR |
 
 The nono version embedded in the image is controlled by `NONO_VERSION` in
 [`.github/workflows/release.yaml`](.github/workflows/release.yaml). Update that
