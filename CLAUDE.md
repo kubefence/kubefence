@@ -18,7 +18,7 @@ The `Signed-off-by` trailer is added automatically by `git commit -s`.
 
 ## Stack
 
-- Go 1.23+, module: `github.com/k8s-nono/nono-nri`
+- Go 1.24+, module: `github.com/k8s-nono/nono-nri`
 - NRI SDK: `github.com/containerd/nri` v0.10.0
 - Tests: Ginkgo v2 + Gomega
 - Config: TOML via `github.com/pelletier/go-toml/v2` v2.2.4
