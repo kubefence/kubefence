@@ -42,6 +42,7 @@ var _ = Describe("Integration", func() {
 			p := nri.NewPlugin(cfg, newBufLogger(buf))
 
 			pod := &api.PodSandbox{
+				Uid:            "pod-uid-prod-1",
 				RuntimeHandler: "nono-runc",
 				Namespace:      "production",
 				Name:           "web-server-abc",
@@ -116,6 +117,7 @@ var _ = Describe("Integration", func() {
 			p := nri.NewPlugin(cfg, newBufLogger(buf))
 
 			pod := &api.PodSandbox{
+				Uid:            "pod-uid-staging-1",
 				RuntimeHandler: "nono-runc",
 				Namespace:      "staging",
 				Name:           "worker-ghi",
@@ -145,12 +147,14 @@ var _ = Describe("Integration", func() {
 
 			// Two matching pods
 			matchingPod1 := &api.PodSandbox{
+				Uid:            "pod-uid-seq-1",
 				RuntimeHandler: "nono-runc",
 				Namespace:      "prod",
 				Name:           "app-one",
 				Annotations:    map[string]string{},
 			}
 			matchingPod2 := &api.PodSandbox{
+				Uid:            "pod-uid-seq-2",
 				RuntimeHandler: "nono-runc",
 				Namespace:      "prod",
 				Name:           "app-two",

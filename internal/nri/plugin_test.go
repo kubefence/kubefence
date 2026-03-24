@@ -72,6 +72,7 @@ var _ = Describe("Plugin", func() {
 			p := nri.NewPlugin(cfg, newBufLogger(buf))
 
 			pod := &api.PodSandbox{
+				Uid:            "pod-uid-inject-1",
 				RuntimeHandler: "nono-runc",
 				Namespace:      "prod",
 				Name:           "app-xyz",
@@ -110,6 +111,7 @@ var _ = Describe("Plugin", func() {
 			p := nri.NewPlugin(cfg, newBufLogger(buf))
 
 			pod := &api.PodSandbox{
+				Uid:            "pod-uid-mount-1",
 				RuntimeHandler: "nono-runc",
 				Namespace:      "default",
 				Name:           "test-pod",
@@ -133,6 +135,7 @@ var _ = Describe("Plugin", func() {
 			p := nri.NewPlugin(cfg, newBufLogger(buf))
 
 			pod := &api.PodSandbox{
+				Uid:            "pod-uid-fallback-1",
 				RuntimeHandler: "nono-runc",
 				Namespace:      "default",
 				Name:           "test-pod",

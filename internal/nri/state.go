@@ -38,11 +38,12 @@ type ContainerMetadata struct {
 	Timestamp   string `json:"timestamp"`
 }
 
-// validPathComponent returns an error if s contains a path separator or "..",
-// which would allow a caller to escape the state base directory.
+// validPathComponent returns an error if s is empty, is a dot-component ("." or ".."),
+// or contains a path separator — any of which would allow a caller to escape or
+// misaddress the state base directory.
 func validPathComponent(s string) error {
-	if strings.ContainsAny(s, "/\\") || s == ".." || strings.Contains(s, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("invalid path component %q: must not contain path separators or ..", s)
+	if s == "" || s == "." || s == ".." || strings.ContainsAny(s, "/\\") {
+		return fmt.Errorf("invalid path component %q: must not be empty, a dot-component, or contain path separators", s)
 	}
 	return nil
 }
