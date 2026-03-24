@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/containerd/nri/pkg/stub"
 
@@ -67,13 +69,16 @@ func run() error {
 		return fmt.Errorf("creating NRI stub: %w", err)
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	logger.Info("nono-nri starting",
 		"config", configPath,
 		"runtime_classes", cfg.RuntimeClasses,
 		"default_profile", cfg.DefaultProfile,
 	)
 
-	if err := s.Run(context.Background()); err != nil {
+	if err := s.Run(ctx); err != nil {
 		return fmt.Errorf("plugin exited: %w", err)
 	}
 	return nil
