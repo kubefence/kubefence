@@ -14,13 +14,17 @@ spec:
       labels:
         app: nono-nri
     spec:
+      automountServiceAccountToken: false
       initContainers:
         - name: install-nono
           image: nono-nri:latest
           imagePullPolicy: IfNotPresent
           command: ["cp", "/usr/local/bin/nono", "/opt/nono-nri/nono"]
           securityContext:
-            privileged: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           volumeMounts:
             - name: nono-host-dir
               mountPath: /opt/nono-nri
@@ -33,7 +37,10 @@ spec:
             - --config
             - /etc/nri/conf.d/10-nono-nri.toml
           securityContext:
-            privileged: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           volumeMounts:
             - name: nri-socket
               mountPath: /var/run/nri
@@ -44,6 +51,8 @@ spec:
             - name: nri-config
               mountPath: /etc/nri/conf.d
               readOnly: true
+            - name: nono-state
+              mountPath: /var/run/nono-nri
       tolerations:
         - operator: Exists
       volumes:
@@ -59,3 +68,5 @@ spec:
           hostPath:
             path: /etc/nri/conf.d
             type: DirectoryOrCreate
+        - name: nono-state
+          emptyDir: {}
