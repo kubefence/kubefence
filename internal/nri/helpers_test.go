@@ -3,6 +3,8 @@ package nri_test
 import (
 	"bytes"
 	"log/slog"
+
+	nri "github.com/k8s-nono/nono-nri/internal/nri"
 )
 
 // logEntry is used to parse structured JSON log output from the plugin in all
@@ -24,4 +26,15 @@ type logEntry struct {
 // newBufLogger creates a JSON slog.Logger that writes to the returned buffer.
 func newBufLogger(buf *bytes.Buffer) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+}
+
+// newTestPlugin creates a Plugin with the standard test config (RuntimeClass
+// "nono-runc", default profile, NonoBinPath "/host/nono") writing logs to buf.
+// Tests that need a non-standard config should call nri.NewPlugin directly.
+func newTestPlugin(buf *bytes.Buffer) *nri.Plugin {
+	return nri.NewPlugin(&nri.Config{
+		RuntimeClasses: []string{"nono-runc"},
+		DefaultProfile: "default",
+		NonoBinPath:    "/host/nono",
+	}, newBufLogger(buf))
 }

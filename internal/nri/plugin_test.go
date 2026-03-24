@@ -30,13 +30,8 @@ var _ = Describe("Plugin", func() {
 
 	Describe("CreateContainer", func() {
 		It("logs skip with all required fields for non-matching container", func() {
-			cfg := &nri.Config{
-				RuntimeClasses: []string{"nono-runc"},
-				DefaultProfile: "default",
-				NonoBinPath:    "/host/nono",
-			}
 			buf := &bytes.Buffer{}
-			p := nri.NewPlugin(cfg, newBufLogger(buf))
+			p := newTestPlugin(buf)
 
 			pod := &api.PodSandbox{
 				RuntimeHandler: "runc",
@@ -63,13 +58,8 @@ var _ = Describe("Plugin", func() {
 		})
 
 		It("returns ContainerAdjustment and logs injected for matching container", func() {
-			cfg := &nri.Config{
-				RuntimeClasses: []string{"nono-runc"},
-				DefaultProfile: "default",
-				NonoBinPath:    "/host/nono",
-			}
 			buf := &bytes.Buffer{}
-			p := nri.NewPlugin(cfg, newBufLogger(buf))
+			p := newTestPlugin(buf)
 
 			pod := &api.PodSandbox{
 				Uid:            "pod-uid-inject-1",
@@ -102,13 +92,8 @@ var _ = Describe("Plugin", func() {
 		})
 
 		It("returns non-nil ContainerAdjustment with correct mount destination", func() {
-			cfg := &nri.Config{
-				RuntimeClasses: []string{"nono-runc"},
-				DefaultProfile: "default",
-				NonoBinPath:    "/host/nono",
-			}
 			buf := &bytes.Buffer{}
-			p := nri.NewPlugin(cfg, newBufLogger(buf))
+			p := newTestPlugin(buf)
 
 			pod := &api.PodSandbox{
 				Uid:            "pod-uid-mount-1",

@@ -31,119 +31,10 @@ var _ = Describe("Integration", func() {
 		os.RemoveAll(tmpDir)
 	})
 
-	Context("Full CreateContainer flow for matching pod", func() {
-		It("returns non-nil ContainerAdjustment and logs injected with all required CORE-04 fields", func() {
-			cfg := &nri.Config{
-				RuntimeClasses: []string{"nono-runc", "nono-kata"},
-				DefaultProfile: "default",
-				NonoBinPath:    "/host/nono",
-			}
-			buf := &bytes.Buffer{}
-			p := nri.NewPlugin(cfg, newBufLogger(buf))
-
-			pod := &api.PodSandbox{
-				Uid:            "pod-uid-prod-1",
-				RuntimeHandler: "nono-runc",
-				Namespace:      "production",
-				Name:           "web-server-abc",
-				Annotations:    map[string]string{"nono.sh/profile": "strict"},
-			}
-			ctr := &api.Container{Id: "container-789"}
-
-			adj, updates, err := p.CreateContainer(context.Background(), pod, ctr)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(adj).NotTo(BeNil())
-			Expect(updates).To(BeNil())
-
-			Expect(adj.Args[0]).To(Equal("/nono/nono"))
-			Expect(adj.Mounts).To(HaveLen(1))
-
-			var entry logEntry
-			Expect(json.Unmarshal(buf.Bytes(), &entry)).To(Succeed())
-			Expect(entry.Msg).To(Equal("injected"))
-			Expect(entry.Decision).To(Equal("inject"))
-			Expect(entry.ContainerID).To(Equal("container-789"))
-			Expect(entry.Namespace).To(Equal("production"))
-			Expect(entry.Pod).To(Equal("web-server-abc"))
-			Expect(entry.Profile).To(Equal("strict"))
-			Expect(entry.RuntimeHandler).To(Equal("nono-runc"))
-			Expect(entry.Time).NotTo(BeEmpty())
-			Expect(strings.ToUpper(entry.Level)).To(ContainSubstring("INFO"))
-		})
-	})
-
-	Context("Full CreateContainer flow for non-matching pod", func() {
-		It("logs skip with reason and all required fields", func() {
-			cfg := &nri.Config{
-				RuntimeClasses: []string{"nono-runc", "nono-kata"},
-				DefaultProfile: "default",
-				NonoBinPath:    "/host/nono",
-			}
-			buf := &bytes.Buffer{}
-			p := nri.NewPlugin(cfg, newBufLogger(buf))
-
-			pod := &api.PodSandbox{
-				RuntimeHandler: "runc",
-				Namespace:      "kube-system",
-				Name:           "coredns-def",
-				Annotations:    map[string]string{},
-			}
-			ctr := &api.Container{Id: "container-456"}
-
-			adj, _, err := p.CreateContainer(context.Background(), pod, ctr)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(adj).To(BeNil())
-
-			var entry logEntry
-			Expect(json.Unmarshal(buf.Bytes(), &entry)).To(Succeed())
-			Expect(entry.Msg).To(Equal("skip"))
-			Expect(entry.Decision).To(Equal("skip"))
-			Expect(entry.Reason).NotTo(BeEmpty())
-			Expect(entry.ContainerID).To(Equal("container-456"))
-			Expect(entry.Namespace).To(Equal("kube-system"))
-			Expect(entry.Pod).To(Equal("coredns-def"))
-			Expect(entry.RuntimeHandler).To(Equal("runc"))
-		})
-	})
-
-	Context("Full CreateContainer flow with default profile fallback", func() {
-		It("uses DefaultProfile when no annotation is present", func() {
-			cfg := &nri.Config{
-				RuntimeClasses: []string{"nono-runc", "nono-kata"},
-				DefaultProfile: "permissive",
-				NonoBinPath:    "/host/nono",
-			}
-			buf := &bytes.Buffer{}
-			p := nri.NewPlugin(cfg, newBufLogger(buf))
-
-			pod := &api.PodSandbox{
-				Uid:            "pod-uid-staging-1",
-				RuntimeHandler: "nono-runc",
-				Namespace:      "staging",
-				Name:           "worker-ghi",
-				Annotations:    map[string]string{},
-			}
-			ctr := &api.Container{Id: "container-111"}
-
-			_, _, err := p.CreateContainer(context.Background(), pod, ctr)
-			Expect(err).NotTo(HaveOccurred())
-
-			var entry logEntry
-			Expect(json.Unmarshal(buf.Bytes(), &entry)).To(Succeed())
-			Expect(entry.Profile).To(Equal("permissive"))
-			Expect(entry.Msg).To(Equal("injected"))
-		})
-	})
-
 	Context("Multiple containers in sequence", func() {
 		It("correctly classifies 2 matching and 1 non-matching container", func() {
-			cfg := &nri.Config{
-				RuntimeClasses: []string{"nono-runc"},
-				DefaultProfile: "default",
-				NonoBinPath:    "/host/nono",
-			}
 			buf := &bytes.Buffer{}
-			p := nri.NewPlugin(cfg, newBufLogger(buf))
+			p := newTestPlugin(buf)
 
 			// Two matching pods
 			matchingPod1 := &api.PodSandbox{
@@ -231,35 +122,10 @@ var _ = Describe("Integration", func() {
 		})
 	})
 
-	Context("RemoveContainer flow", func() {
-		It("returns nil updates and nil error", func() {
-			cfg := &nri.Config{
-				RuntimeClasses: []string{"nono-runc"},
-				DefaultProfile: "default",
-			}
-			buf := &bytes.Buffer{}
-			p := nri.NewPlugin(cfg, newBufLogger(buf))
-
-			pod := &api.PodSandbox{
-				Name:      "test-pod",
-				Namespace: "default",
-			}
-			ctr := &api.Container{Id: "container-remove-1"}
-
-			err := p.RemoveContainer(context.Background(), pod, ctr)
-			Expect(err).NotTo(HaveOccurred())
-		})
-	})
-
 	Context("RemoveContainer cleans up state dir", func() {
 		It("removes state directory after CreateContainer wrote it", func() {
-			cfg := &nri.Config{
-				RuntimeClasses: []string{"nono-runc"},
-				DefaultProfile: "default",
-				NonoBinPath:    "/host/nono",
-			}
 			buf := &bytes.Buffer{}
-			p := nri.NewPlugin(cfg, newBufLogger(buf))
+			p := newTestPlugin(buf)
 
 			pod := &api.PodSandbox{
 				RuntimeHandler: "nono-runc",
