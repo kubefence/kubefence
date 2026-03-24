@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/containerd/nri/pkg/stub"
@@ -15,10 +16,17 @@ import (
 func run() error {
 	var configPath string
 	var jsonMode bool
+	var logLevel string
 
 	flag.StringVar(&configPath, "config", "/etc/nri/conf.d/10-nono-nri.toml", "path to TOML config file")
 	flag.BoolVar(&jsonMode, "json", true, "output logs as JSON")
+	flag.StringVar(&logLevel, "log-level", "info", "log level: debug, info, warn, error")
 	flag.Parse()
+
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(logLevel)); err != nil {
+		return fmt.Errorf("invalid log level %q: %w", logLevel, err)
+	}
 
 	// Kernel check FIRST (SAFE-01): verify Landlock LSM support before any
 	// other initialization. This prevents startup on unsupported kernels.
@@ -35,7 +43,7 @@ func run() error {
 		return fmt.Errorf("nono binary not found at %s: %w", cfg.NonoBinPath, err)
 	}
 
-	logger := applog.New(jsonMode)
+	logger := applog.New(jsonMode, level)
 
 	p := nri.NewPlugin(cfg, logger)
 
