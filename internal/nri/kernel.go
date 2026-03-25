@@ -61,4 +61,3 @@ func defaultKernelVersion() (major, minor int) {
 	minor, _ = strconv.Atoi(minorRaw)
 	return
 }
-
