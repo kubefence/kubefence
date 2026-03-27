@@ -29,9 +29,9 @@ var _ = Describe("BuildAdjustment", func() {
 		),
 	)
 
-	Describe("readonly bind mount", func() {
+	Describe("bind mount", func() {
 		It("mounts the host directory to /nono so binary is accessible at /nono/nono", func() {
-			ctr := &api.Container{Id: "ctr-3", Args: []string{"cmd"}}
+			ctr := &api.Container{Id: "ctr-1", Args: []string{"cmd"}}
 			adj := nri.BuildAdjustment(ctr, "strict", "/usr/local/bin/nono", false)
 
 			Expect(adj.Mounts).To(HaveLen(1))
@@ -42,14 +42,53 @@ var _ = Describe("BuildAdjustment", func() {
 			Expect(m.Options).To(ContainElements("bind", "ro", "rprivate"))
 		})
 
-		It("skips bind-mount and injects NONO_PROFILE env when nonoInVMRootfs is true", func() {
-			ctr := &api.Container{Id: "ctr-4", Args: []string{"cmd"}}
-			adj := nri.BuildAdjustment(ctr, "strict", "", true)
+		It("uses host bind-mount regardless of vmRootfs flag", func() {
+			ctr := &api.Container{Id: "ctr-2", Args: []string{"cmd"}}
+			adjStd := nri.BuildAdjustment(ctr, "default", "/opt/nono-nri/nono", false)
+			adjVM := nri.BuildAdjustment(ctr, "default", "/opt/nono-nri/nono", true)
 
-			Expect(adj.Mounts).To(BeEmpty())
-			Expect(adj.Env).To(HaveLen(1))
-			Expect(adj.Env[0].Key).To(Equal("NONO_PROFILE"))
-			Expect(adj.Env[0].Value).To(Equal("strict"))
+			Expect(adjStd.Mounts[0].Source).To(Equal("/opt/nono-nri"))
+			Expect(adjVM.Mounts[0].Source).To(Equal("/opt/nono-nri"))
+		})
+	})
+
+	Describe("env injection", func() {
+		It("injects NONO_PROFILE with the resolved profile", func() {
+			ctr := &api.Container{Id: "ctr-3", Args: []string{"cmd"}}
+			adj := nri.BuildAdjustment(ctr, "strict", "/opt/nono-nri/nono", false)
+
+			envMap := make(map[string]string)
+			for _, kv := range adj.Env {
+				envMap[kv.Key] = kv.Value
+			}
+			Expect(envMap["NONO_PROFILE"]).To(Equal("strict"))
+		})
+
+		It("prepends /nono to the container's existing PATH", func() {
+			ctr := &api.Container{
+				Id:   "ctr-4",
+				Args: []string{"cmd"},
+				Env:  []string{"PATH=/custom/bin:/usr/bin", "HOME=/root"},
+			}
+			adj := nri.BuildAdjustment(ctr, "default", "/opt/nono-nri/nono", false)
+
+			envMap := make(map[string]string)
+			for _, kv := range adj.Env {
+				envMap[kv.Key] = kv.Value
+			}
+			Expect(envMap["PATH"]).To(Equal("/nono:/custom/bin:/usr/bin"))
+		})
+
+		It("uses the distribution default PATH when container has none", func() {
+			ctr := &api.Container{Id: "ctr-5", Args: []string{"cmd"}}
+			adj := nri.BuildAdjustment(ctr, "default", "/opt/nono-nri/nono", false)
+
+			envMap := make(map[string]string)
+			for _, kv := range adj.Env {
+				envMap[kv.Key] = kv.Value
+			}
+			Expect(envMap["PATH"]).To(HavePrefix("/nono:"))
+			Expect(envMap["PATH"]).To(ContainSubstring("/usr/local/bin"))
 		})
 	})
 

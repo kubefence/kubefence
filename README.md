@@ -12,6 +12,38 @@ The plugin intercepts container creation, prepends `nono wrap` to the container'
 via `ContainerAdjustment.SetArgs()`, and bind-mounts the nono binary into the container — working
 uniformly for both runc and Kata Containers runtimes with no changes required to container images.
 
+## Threat Model
+
+nono-nri protects the **host worker node** from workloads running inside guest
+containers (including Kata VM guests). The trust boundary sits between the host
+and the container.
+
+**Trusted** — the host side and everything it provides to the guest:
+- The host OS, its kernel, and all binaries running on it
+- The nono-nri plugin itself and the nono binary it distributes
+- Everything the host injects into the container at creation time: the
+  `/nono` bind-mount, the `SetArgs` override that installs nono as PID 1,
+  and the `NONO_PROFILE` / `PATH` environment variables
+
+**Untrusted** — anything inside the container after it starts:
+- The container workload and all processes it spawns
+- Any code or data arriving from the network inside the container
+- Execs triggered via `kubectl exec`
+
+**What is enforced:**
+Landlock LSM restrictions are applied by nono before the container's own code
+runs. Because Landlock is a kernel mechanism, a compromised process inside the
+container cannot remove or weaken its own restrictions. Restrictions are also
+inherited across `exec`, so child processes remain confined.
+
+**What is not enforced:**
+nono-nri constrains filesystem access. It does not restrict network access,
+syscalls (beyond what seccomp provides separately), or inter-process
+communication. A workload that bypasses the filesystem entirely (e.g. via
+`mmap`/JIT) is not constrained by Landlock.
+
+---
+
 ## Demo
 
 **python-dev** — automated Job showing Landlock filesystem isolation (non-interactive):
