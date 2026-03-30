@@ -24,7 +24,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RUNTIME="${RUNTIME:-containerd}"
 CLUSTER_NAME="${CLUSTER_NAME:-nono-${RUNTIME}}"
 IMAGE="${IMAGE:-nono-nri:latest}"
-KATA="${KATA:-false}"            # set KATA=true to install Kata Containers
+KATA="${KATA:-true}"             # set KATA=false to skip Kata Containers
 # Pinned kata-containers version. Keep in sync with KATA_VERSION in
 # .github/workflows/kata-kernel.yaml when upgrading kata.
 KATA_VERSION="${KATA_VERSION:-3.28.0}"
@@ -34,7 +34,7 @@ KATA_VERSION="${KATA_VERSION:-3.28.0}"
 KATA_KERNEL_IMAGE="${KATA_KERNEL_IMAGE:-}"
 # Custom Ubuntu Noble rootfs with nono pre-installed (published by kata-rootfs-nono GHA workflow).
 # Requires KATA=true. Enables vm_rootfs_classes for the kata-nono-qemu handler.
-KATA_ROOTFS="${KATA_ROOTFS:-false}"
+KATA_ROOTFS="${KATA_ROOTFS:-true}"
 KATA_ROOTFS_IMAGE="${KATA_ROOTFS_IMAGE:-}"
 NONO_VERSION="${NONO_VERSION:-v0.23.0}"  # used when building the rootfs locally
 SKIP_BUILD="${SKIP_BUILD:-false}"  # set SKIP_BUILD=true to use a pre-built / remote image
@@ -325,7 +325,7 @@ if [[ "$KATA" == "true" ]]; then
     echo ""
     echo "==> Deploying kata-nono-qemu (embedded nono rootfs)..."
 
-    KATA_ROOTFS_CACHE="/tmp/kata-rootfs-nono-${KATA_VERSION}-${NONO_VERSION}.image"
+    KATA_ROOTFS_CACHE="/tmp/kata-rootfs-confidential-${KATA_VERSION}-${NONO_VERSION}.image"
 
     if [ -f "${KATA_ROOTFS_CACHE}" ]; then
       echo "    Using cached rootfs: ${KATA_ROOTFS_CACHE}"
@@ -340,7 +340,7 @@ if [[ "$KATA" == "true" ]]; then
 
       if docker pull "${KATA_ROOTFS_IMAGE}" 2>/dev/null; then
         _CTR=$(docker create "${KATA_ROOTFS_IMAGE}")
-        docker cp "${_CTR}:/kata-ubuntu-noble.image" "${KATA_ROOTFS_CACHE}"
+        docker cp "${_CTR}:/kata-containers-confidential.image" "${KATA_ROOTFS_CACHE}"
         docker rm "${_CTR}" >/dev/null
         echo "    Rootfs extracted from image."
       else
@@ -357,7 +357,7 @@ if [[ "$KATA" == "true" ]]; then
         curl -fsSL \
           "https://github.com/kata-containers/kata-containers/releases/download/${KATA_VERSION}/kata-static-${KATA_VERSION}-amd64.tar.zst" \
           | zstd -d \
-          | tar --to-stdout -x "./opt/kata/share/kata-containers/kata-ubuntu-noble.image" \
+          | tar --to-stdout -x "./opt/kata/share/kata-containers/kata-ubuntu-noble-confidential.image" \
           > "${KATA_ROOTFS_CACHE}.tmp"
 
         bash "${SCRIPT_DIR}/kata-rootfs/inject.sh" \
@@ -369,7 +369,7 @@ if [[ "$KATA" == "true" ]]; then
     fi
 
     # Deploy the custom rootfs onto the node.
-    KATA_CUSTOM_ROOTFS="${KATA_SHARE}/kata-ubuntu-noble-nono.image"
+    KATA_CUSTOM_ROOTFS="${KATA_SHARE}/kata-confidential-nono.image"
     docker cp "${KATA_ROOTFS_CACHE}" "${NODE}:${KATA_CUSTOM_ROOTFS}"
     docker exec "$NODE" chmod 644 "${KATA_CUSTOM_ROOTFS}"
     echo "    Deployed: ${KATA_CUSTOM_ROOTFS}"
@@ -377,7 +377,7 @@ if [[ "$KATA" == "true" ]]; then
     # Create a dedicated kata config for the kata-nono-qemu handler.
     # Inherits all settings from configuration-qemu.toml (Landlock kernel,
     # machine_accelerators) but points image = at the custom nono rootfs.
-    # kata-nono-sandbox continues using the standard kata-ubuntu-noble.image.
+    # kata-nono-sandbox continues using the standard kata-ubuntu-noble-confidential.image.
     KATA_CFG_NONO="$(dirname ${KATA_CFG})/configuration-kata-nono-qemu.toml"
     docker exec "$NODE" sh -c "
       cp '${KATA_CFG}' '${KATA_CFG_NONO}'
