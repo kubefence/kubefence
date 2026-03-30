@@ -12,7 +12,7 @@
 #   SKIP_BUILD      true to skip docker build and pull IMAGE from a registry instead
 #   KATA_VERSION    kata-containers release to install (default: 3.28.0)
 #   KATA_KERNEL_IMAGE  pre-built Landlock kernel image; derived from git remote if unset
-#   KATA_ROOTFS     true to deploy the custom Ubuntu Noble rootfs with nono pre-installed
+#   KATA_ROOTFS     true to deploy the custom confidential guest rootfs with nono pre-installed
 #                   (requires KATA=true; enables vm_rootfs_classes in plugin config)
 #   KATA_ROOTFS_IMAGE  pre-built rootfs image; derived from git remote if unset
 #   NONO_VERSION    nono version for local rootfs fallback build (default: v0.23.0)
@@ -32,7 +32,7 @@ KATA_VERSION="${KATA_VERSION:-3.28.0}"
 # Derived from the git remote owner at runtime; override to use a custom build.
 #   KATA_KERNEL_IMAGE=ghcr.io/yourorg/kata-kernel-landlock:3.28.0
 KATA_KERNEL_IMAGE="${KATA_KERNEL_IMAGE:-}"
-# Custom Ubuntu Noble rootfs with nono pre-installed (published by kata-rootfs-nono GHA workflow).
+# Custom confidential guest rootfs with nono pre-installed (published by kata-rootfs-nono GHA workflow).
 # Requires KATA=true. Enables vm_rootfs_classes for the kata-nono-qemu handler.
 KATA_ROOTFS="${KATA_ROOTFS:-true}"
 KATA_ROOTFS_IMAGE="${KATA_ROOTFS_IMAGE:-}"
