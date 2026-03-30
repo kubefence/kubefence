@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# inject.sh — injects nono and shell wrappers into kata-ubuntu-noble.image
+# inject.sh — injects nono and shell wrappers into a kata MBR+ext4 disk image
 #
 # Operates entirely on files (no root, no loop mount) using dd to extract
 # the ext4 partition from the MBR disk image and debugfs -w to write files.
@@ -10,10 +10,22 @@ set -euo pipefail
 IMAGE="$1"
 NONO="$2"
 
-# Partition geometry from `file kata-ubuntu-noble.image`:
-#   partition 1: start-sector 6144, 518144 sectors (512 bytes each)
-PART_START_SECTOR=6144
-PART_SECTORS=518144
+# Detect partition geometry dynamically — works for any MBR/GPT disk image
+# without root or loop mounts. sfdisk is in the `fdisk` apt package.
+echo "==> Detecting partition geometry..."
+read PART_START_SECTOR PART_SECTORS < <(
+  sfdisk --json "$IMAGE" | awk '
+    /"start"/ { gsub(/[^0-9]/,"",$2); start=$2 }
+    /"size"/  { gsub(/[^0-9]/,"",$2); size=$2; print start, size; exit }
+  '
+)
+if [[ -z "$PART_START_SECTOR" || -z "$PART_SECTORS" || \
+      "$PART_START_SECTOR" -eq 0 ]]; then
+  echo "ERROR: Failed to detect partition geometry from $(basename "$IMAGE")" >&2
+  echo "       sfdisk output: $(sfdisk --json "$IMAGE" 2>&1 | head -5)" >&2
+  exit 1
+fi
+echo "==> Partition geometry: start=${PART_START_SECTOR} sectors, size=${PART_SECTORS} sectors"
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
