@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1
 #
-# Builds a customised Kata Containers Ubuntu Noble guest rootfs image that
-# includes the nono Landlock sandbox binary and shell wrapper scripts.
+# Builds a customised Kata Containers Ubuntu Noble confidential guest rootfs
+# image that includes the nono Landlock sandbox binary and shell wrapper scripts.
 #
-# The kata-ubuntu-noble.image (256 MiB MBR+ext4 disk image) is extracted
+# The kata-ubuntu-noble-confidential.image (MBR+ext4 disk image) is extracted
 # from the kata-static release tarball.  The ext4 partition is modified
 # using dd + debugfs — no loop mount or root privileges required.
 #
@@ -23,9 +23,9 @@
 #     deploy/kind/kata-rootfs/
 #
 # The resulting image (FROM scratch) contains a single file:
-#   /kata-ubuntu-noble.image
+#   /kata-containers-confidential.image
 # Extract with:
-#   id=$(docker create <image>); docker cp $id:/kata-ubuntu-noble.image .; docker rm $id
+#   id=$(docker create <image>); docker cp $id:/kata-containers-confidential.image .; docker rm $id
 
 ARG KATA_VERSION
 ARG NONO_VERSION
@@ -40,7 +40,7 @@ RUN test -n "$NONO_VERSION" || { echo "NONO_VERSION build-arg is required"; exit
 
 # ── Build prerequisites ───────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl ca-certificates zstd tar e2tools \
+        curl ca-certificates zstd tar e2tools fdisk \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -58,24 +58,26 @@ RUN TARBALL="nono-${NONO_VERSION}-x86_64-unknown-linux-gnu.tar.gz" && \
     chmod 0755 /build/nono && \
     rm /tmp/nono.tar.gz
 
-# ── Download and extract kata-ubuntu-noble.image ──────────────────────────────
+# ── Download and extract kata-ubuntu-noble-confidential.image ─────────────────
 # Stream-extract just the image file from the large kata-static tarball to
 # avoid downloading and storing the full ~1 GB archive.
+# Extract the real file (kata-ubuntu-noble-confidential.image), not the symlink
+# (kata-containers-confidential.img) — tar --to-stdout on a symlink returns 0 bytes.
 RUN echo "Downloading kata-static-${KATA_VERSION}-amd64.tar.zst (streaming)..." && \
     curl -fsSL \
       "https://github.com/kata-containers/kata-containers/releases/download/${KATA_VERSION}/kata-static-${KATA_VERSION}-amd64.tar.zst" \
     | zstd -d \
     | tar --to-stdout -x \
-        "./opt/kata/share/kata-containers/kata-ubuntu-noble.image" \
-    > /build/kata-ubuntu-noble.image && \
-    ls -lh /build/kata-ubuntu-noble.image
+        "./opt/kata/share/kata-containers/kata-ubuntu-noble-confidential.image" \
+    > /build/kata-ubuntu-noble-confidential.image && \
+    ls -lh /build/kata-ubuntu-noble-confidential.image
 
 # ── Inject nono and wrapper scripts ──────────────────────────────────────────
 COPY inject.sh /build/inject.sh
 RUN chmod +x /build/inject.sh && \
-    /build/inject.sh /build/kata-ubuntu-noble.image /build/nono
+    /build/inject.sh /build/kata-ubuntu-noble-confidential.image /build/nono
 
 # ── Minimal final image ───────────────────────────────────────────────────────
 FROM scratch
-COPY --from=builder /build/kata-ubuntu-noble.image /kata-ubuntu-noble.image
+COPY --from=builder /build/kata-ubuntu-noble-confidential.image /kata-containers-confidential.image
 CMD [""]
