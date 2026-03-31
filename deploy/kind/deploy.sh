@@ -227,7 +227,7 @@ if [[ "$KATA" == "true" ]]; then
   else
     # Resolve the image name: derive owner from git remote if not overridden.
     if [ -z "${KATA_KERNEL_IMAGE}" ]; then
-      _GH_OWNER=$(git -C "${SCRIPT_DIR}" remote get-url origin 2>/dev/null \
+      _GH_OWNER=$(git -C "${SCRIPT_DIR}" remote get-url origin 2>/dev/null || true \
         | sed -n 's|.*github\.com[:/]\([^/]*\)/.*|\1|p')
       KATA_KERNEL_IMAGE="ghcr.io/${_GH_OWNER:-k8s-nono}/kata-kernel-landlock:${KATA_VERSION}"
     fi
@@ -332,7 +332,7 @@ if [[ "$KATA" == "true" ]]; then
     else
       # Resolve image name from git remote owner if not overridden.
       if [ -z "${KATA_ROOTFS_IMAGE}" ]; then
-        _GH_OWNER=$(git -C "${SCRIPT_DIR}" remote get-url origin 2>/dev/null \
+        _GH_OWNER=$(git -C "${SCRIPT_DIR}" remote get-url origin 2>/dev/null || true \
           | sed -n 's|.*github\.com[:/]\([^/]*\)/.*|\1|p')
         KATA_ROOTFS_IMAGE="ghcr.io/${_GH_OWNER:-k8s-nono}/kata-rootfs-nono:${KATA_VERSION}-${NONO_VERSION}"
       fi
