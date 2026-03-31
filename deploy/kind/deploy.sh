@@ -323,7 +323,7 @@ if [[ "$KATA" == "true" ]]; then
   # ── kata-nono-qemu: custom rootfs with nono pre-installed ────────────────────
   if [[ "$KATA_ROOTFS" == "true" ]]; then
     echo ""
-    echo "==> Deploying kata-nono-qemu (embedded nono rootfs)..."
+    echo "==> Deploying kata-nono-sandbox (embedded nono rootfs, kata-nono-qemu handler)..."
 
     KATA_ROOTFS_CACHE="/tmp/kata-rootfs-confidential-${KATA_VERSION}-${NONO_VERSION}.image"
 
@@ -409,7 +409,7 @@ fi
 # Handler names must match what the CRI runtime registers (not the RuntimeClass name).
 #   nono-runc        — runc + bind-mount nono delivery (always)
 #   kata-qemu        — Kata VM + bind-mount nono via virtiofs (kata-nono-sandbox)
-#   kata-nono-qemu   — Kata VM + nono embedded in guest rootfs (kata-nono-qemu)
+#   kata-nono-qemu   — Kata VM + nono embedded in guest rootfs (kata-nono-sandbox RC)
 if [[ "$KATA" == "true" && "$KATA_ROOTFS" == "true" ]]; then
   RUNTIME_CLASSES='["nono-runc", "kata-qemu", "kata-nono-qemu"]'
   TOML=$(cat <<EOF
@@ -453,8 +453,8 @@ if [[ "$KATA" == "true" ]]; then
   kubectl apply -f "$REPO_ROOT/deploy/runtimeclass-kata.yaml"
 fi
 if [[ "$KATA_ROOTFS" == "true" ]]; then
-  echo "==> Applying RuntimeClass (kata-nono-qemu)..."
-  kubectl apply -f "$REPO_ROOT/deploy/runtimeclass-kata-nono-qemu.yaml"
+  echo "==> Applying RuntimeClass (kata-nono-sandbox, kata-nono-qemu handler)..."
+  kubectl apply -f "$REPO_ROOT/deploy/runtimeclass-kata-nono-sandbox.yaml"
 fi
 
 echo "==> Applying DaemonSet..."
