@@ -51,13 +51,16 @@ write $NONO /nono/nono
 DEBUGFS_EOF
 
 if [[ -n "$POLICY" ]]; then
-  echo "==> Creating /etc/kata-opa directory..."
+  # /etc/kata-opa/default-policy.rego is a symlink → allow-all.rego in the
+  # stock image.  debugfs write cannot overwrite an existing path, so remove
+  # allow-all.rego first then write our policy in its place.  The symlink
+  # (default-policy.rego → allow-all.rego) stays and now resolves to our file.
+  echo "==> Replacing /etc/kata-opa/allow-all.rego with enforcement policy ..."
   debugfs -w "$PART_IMG" 2>/dev/null << DEBUGFS_EOF
-mkdir /etc/kata-opa
+rm /etc/kata-opa/allow-all.rego
 DEBUGFS_EOF
-  echo "==> Injecting /etc/kata-opa/default-policy.rego ..."
   debugfs -w "$PART_IMG" 2>/dev/null << DEBUGFS_EOF
-write $POLICY /etc/kata-opa/default-policy.rego
+write $POLICY /etc/kata-opa/allow-all.rego
 DEBUGFS_EOF
 fi
 
