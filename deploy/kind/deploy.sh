@@ -445,6 +445,10 @@ TOMLEOF"
 
 # ── Apply Kubernetes manifests ────────────────────────────────────────────────
 echo ""
+echo "==> Applying RuntimeClass (nono-runc)..."
+kubectl delete runtimeclass nono-runc --ignore-not-found 2>/dev/null || true
+kubectl apply -f "$REPO_ROOT/deploy/runtimeclass-runc.yaml"
+
 if [[ "$KATA" == "true" ]]; then
   echo "==> Applying RuntimeClass (kata-nono-sandbox)..."
   # handler is immutable — delete first to allow switching between virtiofs and embedded rootfs modes

@@ -1,0 +1,9 @@
+# runc + nono sandboxing.
+# Uses the nono-runc handler (registered in cluster-containerd.yaml) so pods
+# run in a standard runc container with the nono Landlock sandbox injected via
+# virtiofs-backed bind mount by the nono-nri NRI plugin.
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: nono-runc
+handler: nono-runc
