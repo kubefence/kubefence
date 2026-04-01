@@ -224,7 +224,7 @@ RUNTIME=crio CLUSTER_NAME=nono-crio \
 After deployment:
 
 ```bash
-# Apply the test pod (uses nono-sandbox RuntimeClass)
+# Apply the test pod (uses kata-nono-sandbox RuntimeClass)
 kubectl apply -f deploy/test-pod.yaml
 
 # Wait for it to be ready

@@ -15,7 +15,7 @@ spec:
       annotations:
         nono.sh/profile: "node-dev"
     spec:
-      runtimeClassName: nono-sandbox
+      runtimeClassName: kata-nono-sandbox
       restartPolicy: Never
       containers:
         - name: demo
@@ -27,7 +27,7 @@ spec:
               set +e
               echo "============================================"
               echo " Profile: node-dev | Mode: SANDBOX"
-              echo " (runtimeClassName: nono-sandbox)"
+              echo " (runtimeClassName: kata-nono-sandbox)"
               echo "============================================"
               echo ""
               touch /tmp/nono-demo-file 2>/dev/null || true

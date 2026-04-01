@@ -36,7 +36,6 @@ deploy/kind/deploy.sh             Kind cluster + plugin deploy automation
 deploy/kind/e2e.sh                E2E test suite (17 checks)
 deploy/kind/cluster-containerd.yaml   Kind cluster config with NRI enabled
 deploy/daemonset.yaml             DaemonSet manifest (init + main containers)
-deploy/runtimeclass.yaml          nono-sandbox RuntimeClass (handler: nono-runc)
 deploy/runtimeclass-kata.yaml     kata-nono-sandbox RuntimeClass (handler: kata-qemu)
 deploy/10-nono-nri.toml.example   Annotated TOML config reference
 Dockerfile                        Multi-stage: golang:1.24-alpine builder → alpine:3.20

@@ -62,7 +62,7 @@ See [`contrib/`](contrib/) for manifests, Dockerfiles, and full demo scripts.
 
 ## How It Works
 
-1. A pod is created with `runtimeClassName: nono-sandbox`
+1. A pod is created with `runtimeClassName: kata-nono-sandbox`
 2. The NRI plugin receives the `CreateContainer` event from CRI-O or containerd
 3. The plugin prepends `/nono/nono wrap --profile <profile> --` to the container's `process.args`
 4. The plugin bind-mounts the nono binary from the host into the container at `/nono`
@@ -203,7 +203,7 @@ cp deploy/10-nono-nri.toml.example /etc/nri/conf.d/10-nono-nri.toml
 
 ```bash
 # Register the sandboxed RuntimeClass
-kubectl apply -f deploy/runtimeclass.yaml
+kubectl apply -f deploy/runtimeclass-kata.yaml
 
 # Deploy the plugin DaemonSet using the published image
 IMAGE=ghcr.io/bpradipt/kubefence:latest
@@ -215,11 +215,11 @@ kubectl rollout status daemonset/nono-nri -n kube-system
 
 **4. Apply the RuntimeClass to workloads**
 
-Add `runtimeClassName: nono-sandbox` to any pod spec:
+Add `runtimeClassName: kata-nono-sandbox` to any pod spec:
 
 ```yaml
 spec:
-  runtimeClassName: nono-sandbox
+  runtimeClassName: kata-nono-sandbox
   containers:
     - name: myapp
       image: myimage:latest
@@ -318,7 +318,6 @@ internal/nri/
 internal/log/          # slog JSON handler factory
 deploy/
   daemonset.yaml       # Kubernetes DaemonSet (plugin + init container)
-  runtimeclass.yaml    # RuntimeClass: nono-sandbox / handler: nono-runc
   runtimeclass-kata.yaml  # RuntimeClass: kata-nono-sandbox / handler: kata-qemu
   test-pod.yaml        # Sample sandboxed pod for verification
   crio-nri.conf        # CRI-O NRI config snippet
