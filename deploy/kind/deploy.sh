@@ -152,8 +152,30 @@ runtime_path = \"/usr/libexec/crio/runc\"
 runtime_root = \"/run/runc\"
 monitor_path = \"/usr/libexec/crio/conmon\"
 EOF
+  "
+
+  # Disable containerd's NRI so CRI-O can own /var/run/nri/nri.sock.
+  # The kind CRI-O node image ships with containerd still running alongside
+  # CRI-O. Containerd has NRI enabled by default and starts after CRI-O,
+  # replacing the NRI socket — nono-nri would connect to containerd instead.
+  docker exec "$NODE" sh -c "
+    if ! grep -q 'io.containerd.nri.v1.nri' /etc/containerd/config.toml 2>/dev/null; then
+      cat >> /etc/containerd/config.toml << 'CONTAINERD_EOF'
+[plugins.\"io.containerd.nri.v1.nri\"]
+  disable = true
+CONTAINERD_EOF
+    fi
+    systemctl restart containerd
+    sleep 3
+    echo '    containerd NRI disabled.'
+  "
+
+  # Restart CRI-O after containerd has released the NRI socket so CRI-O
+  # reclaims /var/run/nri/nri.sock as the sole owner.
+  docker exec "$NODE" sh -c "
     systemctl restart crio
     sleep 3
+    echo '    CRI-O restarted — owns NRI socket.'
   "
 fi
 
@@ -403,10 +425,24 @@ if [[ "$KATA" == "true" ]]; then
     "
     echo "    Created ${KATA_CFG_NONO} with custom rootfs."
 
-    # Register kata-nono-qemu as a containerd runtime handler.
-    # Same shim binary and runtime_type as kata-qemu; different ConfigPath.
-    docker exec "$NODE" sh -c "
-      cat >> /etc/containerd/config.toml << 'CONTAINERD_EOF'
+    # Register kata-nono-qemu as a runtime handler in the active CRI.
+    if [[ "$RUNTIME" == "crio" ]]; then
+      docker exec "$NODE" sh -c "
+        cat > /etc/crio/crio.conf.d/98-kata-nono-qemu.conf <<'EOF'
+[crio.runtime.runtimes.kata-nono-qemu]
+runtime_path = \"/opt/kata/bin/containerd-shim-kata-v2\"
+runtime_type = \"vm\"
+runtime_root = \"/run/vc\"
+runtime_config_path = \"${KATA_CFG_NONO}\"
+EOF
+        systemctl restart crio
+      "
+      sleep 3
+      echo "    CRI-O restarted with kata-nono-qemu handler."
+    else
+      # containerd: append stanza and restart.
+      docker exec "$NODE" sh -c "
+        cat >> /etc/containerd/config.toml << 'CONTAINERD_EOF'
 
 [plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.kata-nono-qemu]
   runtime_type = \"io.containerd.kata-qemu.v2\"
@@ -416,10 +452,11 @@ if [[ "$KATA" == "true" ]]; then
   [plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.kata-nono-qemu.options]
     ConfigPath = \"${KATA_CFG_NONO}\"
 CONTAINERD_EOF
-      systemctl restart containerd
-    "
-    sleep 3
-    echo "    containerd restarted with kata-nono-qemu handler."
+        systemctl restart containerd
+      "
+      sleep 3
+      echo "    containerd restarted with kata-nono-qemu handler."
+    fi
   fi
 fi
 
