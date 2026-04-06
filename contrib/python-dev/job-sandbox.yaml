@@ -18,7 +18,7 @@ spec:
         # which requires nono run (supervisor mode), not nono wrap (direct mode).
         nono.sh/profile: "default"
     spec:
-      runtimeClassName: nono-sandbox
+      runtimeClassName: kata-nono-sandbox
       restartPolicy: Never
       containers:
         - name: demo
@@ -29,7 +29,7 @@ spec:
             - |
               set +e
               echo "============================================"
-              echo " Mode: SANDBOX (runtimeClassName: nono-sandbox)"
+              echo " Mode: SANDBOX (runtimeClassName: kata-nono-sandbox)"
               echo " Profile: default — Landlock filesystem isolation"
               echo "============================================"
               echo ""

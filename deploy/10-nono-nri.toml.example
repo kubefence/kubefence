@@ -11,11 +11,20 @@
 # nono_bin_path: absolute path to the nono binary on the HOST node.
 #   The DaemonSet init container copies nono here from the image.
 #   This path is bind-mounted into sandboxed containers.
+#   Not required when all handlers are listed in vm_rootfs_classes.
 #
 # socket_path: NRI socket path. Empty string uses the NRI default
 #   (/var/run/nri/nri.sock).
+#
+# vm_rootfs_classes: list of RuntimeClass handler names whose Kata VMs have
+#   nono pre-installed in the guest rootfs at /nono/nono (e.g. using the
+#   kata-rootfs-nono image). For these handlers the per-container host
+#   bind-mount is skipped and NONO_PROFILE is injected as an env var instead,
+#   so shell wrapper scripts invoked via kubectl exec can apply the correct
+#   profile. nono_bin_path is still required for handlers NOT in this list.
 
 runtime_classes = ["nono-runc"]
 default_profile = "default"
 nono_bin_path = "/opt/nono-nri/nono"
 socket_path = ""
+# vm_rootfs_classes = []

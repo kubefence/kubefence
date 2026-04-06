@@ -62,7 +62,7 @@ unknown_key = "value"
 		Expect(err).NotTo(HaveOccurred())
 	})
 
-	It("returns error for empty nono_bin_path", func() {
+	It("returns error for empty nono_bin_path when bind-mount delivery is used", func() {
 		path := writeTempConfig(`runtime_classes = ["nono-runc"]
 nono_bin_path = ""
 `)
@@ -71,11 +71,31 @@ nono_bin_path = ""
 		Expect(err.Error()).To(ContainSubstring("nono_bin_path must not be empty"))
 	})
 
-	It("returns error for missing nono_bin_path", func() {
+	It("returns error for missing nono_bin_path when bind-mount delivery is used", func() {
 		path := writeTempConfig(`runtime_classes = ["nono-runc"]
 `)
 		_, err := nri.LoadConfig(path)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("nono_bin_path must not be empty"))
+	})
+
+	It("allows missing nono_bin_path when all handlers are in vm_rootfs_classes", func() {
+		path := writeTempConfig(`runtime_classes = ["kata-nono-qemu"]
+vm_rootfs_classes = ["kata-nono-qemu"]
+`)
+		cfg, err := nri.LoadConfig(path)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cfg.IsVMRootfsClass("kata-nono-qemu")).To(BeTrue())
+		Expect(cfg.IsVMRootfsClass("kata-qemu")).To(BeFalse())
+	})
+
+	It("returns error for missing nono_bin_path when some handlers use bind-mount", func() {
+		path := writeTempConfig(`runtime_classes = ["nono-runc", "kata-nono-qemu"]
+vm_rootfs_classes = ["kata-nono-qemu"]
+`)
+		_, err := nri.LoadConfig(path)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("nono_bin_path must not be empty"))
+		Expect(err.Error()).To(ContainSubstring("nono-runc"))
 	})
 })

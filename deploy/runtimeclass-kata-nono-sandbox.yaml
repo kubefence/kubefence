@@ -1,0 +1,11 @@
+# Kata Containers with nono pre-installed in the VM guest rootfs.
+# Uses the kata-nono-qemu handler which points to a dedicated kata QEMU config
+# referencing the custom confidential guest rootfs image (kata-confidential-nono.image).
+# The nono binary lives at /nono/nono inside the VM; the NRI plugin wraps PID 1
+# via SetArgs and injects NONO_PROFILE for shell wrappers in /usr/local/bin.
+# Deploy with: KATA=true KATA_ROOTFS=true bash deploy/kind/deploy.sh
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: kata-nono-sandbox
+handler: kata-nono-qemu

@@ -23,3 +23,5 @@ containerdConfigPatches:
       socket_path = "/var/run/nri/nri.sock"
       plugin_registration_timeout = "5s"
       plugin_request_timeout = "2s"
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nono-runc]
+      runtime_type = "io.containerd.runc.v2"

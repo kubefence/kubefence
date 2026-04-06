@@ -96,7 +96,7 @@ section "1 · Apply pods"
 comment "baseline: no runtimeClassName — plain node container"
 run "kubectl apply -f $REPO_ROOT/contrib/node-dev/pod-baseline.yaml"
 
-comment "sandbox: runtimeClassName nono-sandbox — NRI injects nono wrap at start"
+comment "sandbox: runtimeClassName kata-nono-sandbox — NRI injects nono wrap at start"
 run "kubectl apply -f $REPO_ROOT/contrib/node-dev/pod-sandbox.yaml"
 
 run "kubectl wait --for=condition=ready pod/node-dev-baseline pod/node-dev-sandbox --timeout=60s"

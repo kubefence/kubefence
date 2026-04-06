@@ -1,0 +1,116 @@
+name: kata-rootfs-nono
+
+# Builds the kata confidential guest rootfs image with nono pre-installed
+# and publishes it to GHCR.
+#
+# Image: ghcr.io/<owner>/kata-rootfs-nono:<kata-version>-<nono-version>
+#
+# Triggered on every nono-nri release so the rootfs image stays in sync
+# with the pinned KATA_VERSION and NONO_VERSION below.
+# The build is skipped if the image already exists for that version pair.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      kata_version:
+        description: "kata-containers release tag (e.g. 3.28.0). Defaults to KATA_VERSION below."
+        required: false
+        default: ""
+      nono_version:
+        description: "nono release tag (e.g. v0.23.0). Defaults to NONO_VERSION below."
+        required: false
+        default: ""
+      force_rebuild:
+        description: "Rebuild and push even if the image already exists"
+        type: boolean
+        default: false
+  push:
+    branches: [main, master]
+    paths:
+      - "deploy/kind/kata-rootfs/Dockerfile"
+      - "deploy/kind/kata-rootfs/inject.sh"
+      - ".github/workflows/kata-rootfs.yaml"
+
+# Pinned versions — keep in sync with deploy/kind/deploy.sh and kata-kernel.yaml.
+env:
+  KATA_VERSION: "3.28.0"
+  NONO_VERSION: "v0.23.0"
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/${{ github.repository_owner }}/kata-rootfs-nono
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Resolve versions
+        id: ver
+        env:
+          INPUT_KATA: ${{ inputs.kata_version }}
+          INPUT_NONO: ${{ inputs.nono_version }}
+        run: |
+          KATA="${INPUT_KATA:-}"
+          NONO="${INPUT_NONO:-}"
+          [ -z "$KATA" ] && KATA="${{ env.KATA_VERSION }}"
+          [ -z "$NONO" ] && NONO="${{ env.NONO_VERSION }}"
+          echo "kata=$KATA" >> "$GITHUB_OUTPUT"
+          echo "nono=$NONO" >> "$GITHUB_OUTPUT"
+          echo "tag=${KATA}-${NONO}" >> "$GITHUB_OUTPUT"
+          echo "Kata version: $KATA  nono version: $NONO"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if image already exists
+        id: check
+        run: |
+          IMAGE="${{ env.IMAGE }}:${{ steps.ver.outputs.tag }}"
+          if docker manifest inspect "$IMAGE" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Image exists: $IMAGE — skipping build."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Image not found: $IMAGE — will build."
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.check.outputs.exists != 'true' || inputs.force_rebuild
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build and push
+        if: steps.check.outputs.exists != 'true' || inputs.force_rebuild
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: deploy/kind/kata-rootfs
+          push: true
+          platforms: linux/amd64
+          build-args: |
+            KATA_VERSION=${{ steps.ver.outputs.kata }}
+            NONO_VERSION=${{ steps.ver.outputs.nono }}
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.ver.outputs.tag }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha,scope=kata-rootfs-${{ steps.ver.outputs.tag }}
+          cache-to: type=gha,mode=max,scope=kata-rootfs-${{ steps.ver.outputs.tag }}
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.check.outputs.exists }}" = "true" ] && [ "${{ inputs.force_rebuild }}" != "true" ]; then
+            echo "### Skipped (image already exists)" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`${{ env.IMAGE }}:${{ steps.ver.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Published" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`${{ env.IMAGE }}:${{ steps.ver.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`${{ env.IMAGE }}:latest\`" >> "$GITHUB_STEP_SUMMARY"
+          fi

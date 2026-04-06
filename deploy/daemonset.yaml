@@ -19,7 +19,33 @@ spec:
         - name: install-nono
           image: nono-nri:latest
           imagePullPolicy: IfNotPresent
-          command: ["cp", "/usr/local/bin/nono", "/opt/nono-nri/nono"]
+          command:
+            - /bin/sh
+            - -c
+            - |
+              cp /usr/local/bin/nono /opt/nono-nri/nono
+              chmod 0755 /opt/nono-nri/nono
+              # Generate wrapper scripts for common interpreters.
+              # These land at /nono/{sh,bash,...} inside containers (via the
+              # bind-mount of /opt/nono-nri → /nono) and are found first when
+              # the NRI plugin prepends /nono to the container's PATH.
+              # Each wrapper calls nono wrap so kubectl exec is sandboxed too.
+              for pair in \
+                "sh:/bin/sh" \
+                "bash:/bin/bash" \
+                "ash:/bin/ash" \
+                "dash:/bin/dash" \
+                "python3:/usr/bin/python3" \
+                "python:/usr/bin/python" \
+                "node:/usr/bin/node" \
+                "ruby:/usr/bin/ruby" \
+                "perl:/usr/bin/perl"; do
+                name="${pair%%:*}"
+                real="${pair##*:}"
+                printf '#!/bin/sh\nexec /nono/nono wrap --profile "${NONO_PROFILE:-default}" -- %s "$@"\n' \
+                  "$real" > "/opt/nono-nri/$name"
+                chmod 0755 "/opt/nono-nri/$name"
+              done
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

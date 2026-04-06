@@ -12,6 +12,10 @@
 #   SKIP_BUILD      true to skip docker build and pull IMAGE from a registry instead
 #   KATA_VERSION    kata-containers release to install (default: 3.28.0)
 #   KATA_KERNEL_IMAGE  pre-built Landlock kernel image; derived from git remote if unset
+#   KATA_ROOTFS     true to deploy the custom confidential guest rootfs with nono pre-installed
+#                   (requires KATA=true; enables vm_rootfs_classes in plugin config)
+#   KATA_ROOTFS_IMAGE  pre-built rootfs image; derived from git remote if unset
+#   NONO_VERSION    nono version for local rootfs fallback build (default: v0.23.0)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,7 +24,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RUNTIME="${RUNTIME:-containerd}"
 CLUSTER_NAME="${CLUSTER_NAME:-nono-${RUNTIME}}"
 IMAGE="${IMAGE:-nono-nri:latest}"
-KATA="${KATA:-false}"            # set KATA=true to install Kata Containers
+KATA="${KATA:-true}"             # set KATA=false to skip Kata Containers
 # Pinned kata-containers version. Keep in sync with KATA_VERSION in
 # .github/workflows/kata-kernel.yaml when upgrading kata.
 KATA_VERSION="${KATA_VERSION:-3.28.0}"
@@ -28,6 +32,11 @@ KATA_VERSION="${KATA_VERSION:-3.28.0}"
 # Derived from the git remote owner at runtime; override to use a custom build.
 #   KATA_KERNEL_IMAGE=ghcr.io/yourorg/kata-kernel-landlock:3.28.0
 KATA_KERNEL_IMAGE="${KATA_KERNEL_IMAGE:-}"
+# Custom confidential guest rootfs with nono pre-installed (published by kata-rootfs-nono GHA workflow).
+# Requires KATA=true. Enables vm_rootfs_classes for the kata-nono-qemu handler.
+KATA_ROOTFS="${KATA_ROOTFS:-true}"
+KATA_ROOTFS_IMAGE="${KATA_ROOTFS_IMAGE:-}"
+NONO_VERSION="${NONO_VERSION:-v0.23.0}"  # used when building the rootfs locally
 SKIP_BUILD="${SKIP_BUILD:-false}"  # set SKIP_BUILD=true to use a pre-built / remote image
 
 # ── Validate runtime ──────────────────────────────────────────────────────────
@@ -103,6 +112,7 @@ elif [[ "$RUNTIME" == "crio" ]]; then
     REGISTRY_IP=$(docker inspect "$REGISTRY_NAME" \
       --format "{{(index .NetworkSettings.Networks \"${KIND_NET}\").IPAddress}}" 2>/dev/null || \
       docker inspect "$REGISTRY_NAME" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{break}}{{end}}')
+    REGISTRY_IP=$(printf '%s' "$REGISTRY_IP" | tr -d '\n')
 
     # Configure CRI-O to allow insecure pulls from the local registry
     docker exec "$NODE" sh -c "
@@ -142,8 +152,48 @@ runtime_path = \"/usr/libexec/crio/runc\"
 runtime_root = \"/run/runc\"
 monitor_path = \"/usr/libexec/crio/conmon\"
 EOF
+  "
+
+  # Disable containerd's NRI so CRI-O can own /var/run/nri/nri.sock.
+  # The kind CRI-O node image ships with containerd still running alongside
+  # CRI-O. Containerd has NRI enabled by default and starts after CRI-O,
+  # replacing the NRI socket — nono-nri would connect to containerd instead.
+  docker exec "$NODE" sh -c "
+    if ! grep -q 'io.containerd.nri.v1.nri' /etc/containerd/config.toml 2>/dev/null; then
+      cat >> /etc/containerd/config.toml << 'CONTAINERD_EOF'
+[plugins.\"io.containerd.nri.v1.nri\"]
+  disable = true
+CONTAINERD_EOF
+    fi
+    systemctl restart containerd
+    sleep 3
+    echo '    containerd NRI disabled.'
+  "
+
+  # Restart CRI-O after containerd has released the NRI socket so CRI-O
+  # reclaims /var/run/nri/nri.sock as the sole owner.
+  docker exec "$NODE" sh -c "
     systemctl restart crio
     sleep 3
+    echo '    CRI-O restarted — owns NRI socket.'
+  "
+fi
+
+if [[ "$RUNTIME" == "containerd" ]]; then
+  # Register nono-runc handler if not already present (idempotent — cluster-containerd.yaml
+  # adds it at creation time, but cluster.yaml and manual clusters may not have it).
+  docker exec "$NODE" sh -c "
+    if ! grep -q 'runtimes.nono-runc' /etc/containerd/config.toml 2>/dev/null; then
+      cat >> /etc/containerd/config.toml << 'CONTAINERD_EOF'
+[plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.nono-runc]
+  runtime_type = \"io.containerd.runc.v2\"
+CONTAINERD_EOF
+      systemctl restart containerd
+      sleep 3
+      echo \"    containerd restarted with nono-runc handler.\"
+    else
+      echo \"    nono-runc handler already registered — skipping restart.\"
+    fi
   "
 fi
 
@@ -217,7 +267,7 @@ if [[ "$KATA" == "true" ]]; then
   else
     # Resolve the image name: derive owner from git remote if not overridden.
     if [ -z "${KATA_KERNEL_IMAGE}" ]; then
-      _GH_OWNER=$(git -C "${SCRIPT_DIR}" remote get-url origin 2>/dev/null \
+      _GH_OWNER=$(git -C "${SCRIPT_DIR}" remote get-url origin 2>/dev/null || true \
         | sed -n 's|.*github\.com[:/]\([^/]*\)/.*|\1|p')
       KATA_KERNEL_IMAGE="ghcr.io/${_GH_OWNER:-k8s-nono}/kata-kernel-landlock:${KATA_VERSION}"
     fi
@@ -309,34 +359,162 @@ if [[ "$KATA" == "true" ]]; then
       sed -i 's|\(\[hypervisor.qemu\]\)|\1\nmachine_accelerators = \"kernel_irqchip=split\"|' '${KATA_CFG}'
   "
   echo "    Kata QEMU config patched (Landlock kernel, kata initrd, kernel_irqchip=split)."
+
+  # ── kata-nono-qemu: custom rootfs with nono pre-installed ────────────────────
+  if [[ "$KATA_ROOTFS" == "true" ]]; then
+    echo ""
+    echo "==> Deploying kata-nono-sandbox (embedded nono rootfs, kata-nono-qemu handler)..."
+
+    KATA_ROOTFS_CACHE="/tmp/kata-rootfs-confidential-${KATA_VERSION}-${NONO_VERSION}.image"
+
+    if [ -f "${KATA_ROOTFS_CACHE}" ]; then
+      echo "    Using cached rootfs: ${KATA_ROOTFS_CACHE}"
+    else
+      # Resolve image name from git remote owner if not overridden.
+      if [ -z "${KATA_ROOTFS_IMAGE}" ]; then
+        _GH_OWNER=$(git -C "${SCRIPT_DIR}" remote get-url origin 2>/dev/null || true \
+          | sed -n 's|.*github\.com[:/]\([^/]*\)/.*|\1|p')
+        KATA_ROOTFS_IMAGE="ghcr.io/${_GH_OWNER:-k8s-nono}/kata-rootfs-nono:${KATA_VERSION}-${NONO_VERSION}"
+      fi
+      echo "    Kata rootfs image: ${KATA_ROOTFS_IMAGE}"
+
+      if docker pull "${KATA_ROOTFS_IMAGE}" 2>/dev/null; then
+        _CTR=$(docker create "${KATA_ROOTFS_IMAGE}")
+        docker cp "${_CTR}:/kata-containers-confidential.image" "${KATA_ROOTFS_CACHE}"
+        docker rm "${_CTR}" >/dev/null
+        echo "    Rootfs extracted from image."
+      else
+        # Fallback: build locally using inject.sh.
+        echo "    Pre-built image not available — building locally..."
+        apt-get install -qq -y e2tools 2>/dev/null || true
+
+        NONO_TARBALL="nono-${NONO_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+        _NONO_TMP=$(mktemp -d)
+        curl -fsSL "https://github.com/always-further/nono/releases/download/${NONO_VERSION}/${NONO_TARBALL}" \
+          | tar xzf - -C "$_NONO_TMP"
+        _NONO_BIN=$(find "$_NONO_TMP" -maxdepth 3 -name nono -type f | head -1)
+
+        curl -fsSL \
+          "https://github.com/kata-containers/kata-containers/releases/download/${KATA_VERSION}/kata-static-${KATA_VERSION}-amd64.tar.zst" \
+          | zstd -d \
+          | tar --to-stdout -x "./opt/kata/share/kata-containers/kata-ubuntu-noble-confidential.image" \
+          > "${KATA_ROOTFS_CACHE}.tmp"
+
+        bash "${SCRIPT_DIR}/kata-rootfs/inject.sh" \
+          "${KATA_ROOTFS_CACHE}.tmp" "$_NONO_BIN" "${SCRIPT_DIR}/kata-rootfs/policy.rego"
+        mv "${KATA_ROOTFS_CACHE}.tmp" "${KATA_ROOTFS_CACHE}"
+        rm -rf "$_NONO_TMP"
+        echo "    Local build complete."
+      fi
+    fi
+
+    # Deploy the custom rootfs onto the node.
+    KATA_CUSTOM_ROOTFS="${KATA_SHARE}/kata-confidential-nono.image"
+    docker cp "${KATA_ROOTFS_CACHE}" "${NODE}:${KATA_CUSTOM_ROOTFS}"
+    docker exec "$NODE" chmod 644 "${KATA_CUSTOM_ROOTFS}"
+    echo "    Deployed: ${KATA_CUSTOM_ROOTFS}"
+
+    # Create a dedicated kata config for the kata-nono-qemu handler.
+    # Inherits all settings from configuration-qemu.toml (Landlock kernel,
+    # machine_accelerators) but points image = at the custom nono rootfs.
+    # kata-nono-sandbox continues using the standard kata-ubuntu-noble-confidential.image.
+    KATA_CFG_NONO="$(dirname ${KATA_CFG})/configuration-kata-nono-qemu.toml"
+    docker exec "$NODE" sh -c "
+      cp '${KATA_CFG}' '${KATA_CFG_NONO}'
+      sed -i 's|^image = .*|image = \"${KATA_CUSTOM_ROOTFS}\"|' '${KATA_CFG_NONO}'
+    "
+    echo "    Created ${KATA_CFG_NONO} with custom rootfs."
+
+    # Register kata-nono-qemu as a runtime handler in the active CRI.
+    if [[ "$RUNTIME" == "crio" ]]; then
+      docker exec "$NODE" sh -c "
+        cat > /etc/crio/crio.conf.d/98-kata-nono-qemu.conf <<'EOF'
+[crio.runtime.runtimes.kata-nono-qemu]
+runtime_path = \"/opt/kata/bin/containerd-shim-kata-v2\"
+runtime_type = \"vm\"
+runtime_root = \"/run/vc\"
+runtime_config_path = \"${KATA_CFG_NONO}\"
+EOF
+        systemctl restart crio
+      "
+      sleep 3
+      echo "    CRI-O restarted with kata-nono-qemu handler."
+    else
+      # containerd: append stanza and restart.
+      docker exec "$NODE" sh -c "
+        cat >> /etc/containerd/config.toml << 'CONTAINERD_EOF'
+
+[plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.kata-nono-qemu]
+  runtime_type = \"io.containerd.kata-qemu.v2\"
+  runtime_path = \"/opt/kata/bin/containerd-shim-kata-v2\"
+  privileged_without_host_devices = true
+  pod_annotations = [\"io.katacontainers.*\"]
+  [plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.kata-nono-qemu.options]
+    ConfigPath = \"${KATA_CFG_NONO}\"
+CONTAINERD_EOF
+        systemctl restart containerd
+      "
+      sleep 3
+      echo "    containerd restarted with kata-nono-qemu handler."
+    fi
+  fi
 fi
 
 # ── Install TOML config ───────────────────────────────────────────────────────
-# runtime_classes must match the RuntimeClass handler (nono-runc / kata-qemu),
-# not the RuntimeClass name.  kata-qemu is added when KATA=true.
-if [[ "$KATA" == "true" ]]; then
+# Handler names must match what the CRI runtime registers (not the RuntimeClass name).
+#   nono-runc        — runc + bind-mount nono delivery (always)
+#   kata-qemu        — Kata VM + bind-mount nono via virtiofs (kata-nono-sandbox)
+#   kata-nono-qemu   — Kata VM + nono embedded in guest rootfs (kata-nono-sandbox RC)
+if [[ "$KATA" == "true" && "$KATA_ROOTFS" == "true" ]]; then
+  RUNTIME_CLASSES='["nono-runc", "kata-qemu", "kata-nono-qemu"]'
+  TOML=$(cat <<EOF
+runtime_classes = ${RUNTIME_CLASSES}
+default_profile = "default"
+nono_bin_path = "/opt/nono-nri/nono"
+socket_path = ""
+vm_rootfs_classes = ["kata-nono-qemu"]
+EOF
+)
+elif [[ "$KATA" == "true" ]]; then
   RUNTIME_CLASSES='["nono-runc", "kata-qemu"]'
-else
-  RUNTIME_CLASSES='["nono-runc"]'
-fi
-TOML=$(cat <<EOF
+  TOML=$(cat <<EOF
 runtime_classes = ${RUNTIME_CLASSES}
 default_profile = "default"
 nono_bin_path = "/opt/nono-nri/nono"
 socket_path = ""
 EOF
 )
+else
+  RUNTIME_CLASSES='["nono-runc"]'
+  TOML=$(cat <<EOF
+runtime_classes = ${RUNTIME_CLASSES}
+default_profile = "default"
+nono_bin_path = "/opt/nono-nri/nono"
+socket_path = ""
+EOF
+)
+fi
 docker exec "$NODE" sh -c "cat > /etc/nri/conf.d/10-nono-nri.toml <<'TOMLEOF'
 ${TOML}
 TOMLEOF"
 
 # ── Apply Kubernetes manifests ────────────────────────────────────────────────
 echo ""
-echo "==> Applying RuntimeClass (nono-sandbox)..."
-kubectl apply -f "$REPO_ROOT/deploy/runtimeclass.yaml"
+echo "==> Applying RuntimeClass (nono-runc)..."
+kubectl delete runtimeclass nono-runc --ignore-not-found 2>/dev/null || true
+kubectl apply -f "$REPO_ROOT/deploy/runtimeclass-runc.yaml"
+
 if [[ "$KATA" == "true" ]]; then
   echo "==> Applying RuntimeClass (kata-nono-sandbox)..."
-  kubectl apply -f "$REPO_ROOT/deploy/runtimeclass-kata.yaml"
+  # handler is immutable — delete first to allow switching between virtiofs and embedded rootfs modes
+  kubectl delete runtimeclass kata-nono-sandbox --ignore-not-found 2>/dev/null || true
+  if [[ "$KATA_ROOTFS" == "true" ]]; then
+    # Embedded rootfs mode: kata-nono-sandbox → kata-nono-qemu handler
+    kubectl apply -f "$REPO_ROOT/deploy/runtimeclass-kata-nono-sandbox.yaml"
+  else
+    # Virtiofs bind-mount mode: kata-nono-sandbox → kata-qemu handler
+    kubectl apply -f "$REPO_ROOT/deploy/runtimeclass-kata.yaml"
+  fi
 fi
 
 echo "==> Applying DaemonSet..."

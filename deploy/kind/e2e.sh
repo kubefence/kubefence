@@ -147,7 +147,7 @@ metadata:
   annotations:
     nono.sh/profile: "default"
 spec:
-  runtimeClassName: nono-sandbox
+  runtimeClassName: nono-runc
   restartPolicy: Never
   containers:
     - name: test
@@ -356,6 +356,60 @@ EOF
     "$PLUGIN_LOGS3" '"pod":"nono-e2e-kata"'
 
   kubectl delete pod nono-e2e-kata --wait=false --ignore-not-found=true &>/dev/null || true
+fi
+
+echo ""
+
+# ── Test 6: kata-nono-sandbox/kata-nono-qemu (embedded nono in VM rootfs) ────
+echo "── Test 6: kata-nono-sandbox (embedded nono in VM rootfs) ──────────────"
+
+KATA_QEMU_RC=$(kubectl get runtimeclass kata-nono-sandbox --no-headers 2>/dev/null | awk '{print $1}' || echo "")
+if [[ -z "$KATA_QEMU_RC" ]]; then
+  pass "kata-nono-sandbox RuntimeClass (skipped — not installed)"
+else
+  # Wait for any previous kata VM to fully teardown before starting a new one.
+  sleep 5
+
+  kubectl apply -f - &>/dev/null <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nono-e2e-kata-qemu
+  namespace: default
+  annotations:
+    nono.sh/profile: "default"
+spec:
+  runtimeClassName: kata-nono-sandbox
+  restartPolicy: Never
+  containers:
+    - name: test
+      image: ${TEST_IMAGE}
+      imagePullPolicy: IfNotPresent
+      command: ["sleep", "infinity"]
+EOF
+
+  require "kata-nono-sandbox pod becomes Running" \
+    kubectl wait --for=condition=ready pod/nono-e2e-kata-qemu --timeout=120s
+
+  # PID 1 should be sleep — nono wraps it via SetArgs then exec's into it.
+  KATA_QEMU_CMDLINE=$(kubectl exec nono-e2e-kata-qemu -- \
+    cat /proc/1/cmdline 2>/dev/null | tr '\0' ' ' || echo "")
+  check_contains "/proc/1/cmdline shows original command" \
+    "$KATA_QEMU_CMDLINE" "sleep"
+
+  # nono lives in the VM rootfs (not injected via virtiofs bind-mount).
+  check "/nono/nono exists in VM rootfs" \
+    kubectl exec nono-e2e-kata-qemu -- test -x /nono/nono
+
+  # NONO_PROFILE is injected by the NRI plugin for wrapper script use.
+  check "NONO_PROFILE env var injected" \
+    kubectl exec nono-e2e-kata-qemu -- sh -c 'test -n "${NONO_PROFILE}"'
+
+  PLUGIN_LOGS4=$(kubectl logs -n kube-system "$PLUGIN_POD" 2>/dev/null || echo "")
+  check_contains "plugin logged injection for kata-nono-qemu pod" \
+    "$PLUGIN_LOGS4" '"pod":"nono-e2e-kata-qemu"'
+
+  kubectl delete pod nono-e2e-kata-qemu --wait=false --ignore-not-found=true &>/dev/null || true
 fi
 
 echo ""

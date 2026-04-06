@@ -6,7 +6,7 @@ metadata:
   annotations:
     nono.sh/profile: "default"
 spec:
-  runtimeClassName: nono-sandbox
+  runtimeClassName: kata-nono-sandbox
   restartPolicy: Never
   containers:
     - name: test

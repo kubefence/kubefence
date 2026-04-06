@@ -57,11 +57,11 @@ docker-load-kind: docker-build
 	kind load docker-image $(IMAGE) --name $(KIND_CLUSTER)
 
 # ── Kind e2e ──────────────────────────────────────────────────────────────────
-# deploy.sh builds the image internally (via make docker-build), so kind-up
-# does not depend on docker-build to avoid a double build.
+# Kata is enabled by default (KATA=true). deploy.sh builds the image
+# internally (via make docker-build), so kind-up does not depend on docker-build.
 RUNTIME       ?= containerd
 CLUSTER_NAME  ?= nono-$(RUNTIME)
-KATA          ?= false
+KATA          ?= true
 REGISTRY_NAME ?= nono-nri-registry
 REGISTRY_PORT ?= 5100
 
