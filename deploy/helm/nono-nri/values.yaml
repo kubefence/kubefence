@@ -44,6 +44,23 @@ tolerations:
 # Resource requests/limits (empty by default)
 resources: {}
 
+# Host path to containerd's configuration file.
+# Shared by the nodeSetup and kata DaemonSets for config patching.
+containerdConfigPath: /etc/containerd/config.toml
+
+# Node-level containerd configuration.
+# When enabled, a privileged DaemonSet (daemonset-node-setup) patches
+# containerd on each node to:
+#   - Enable the NRI subsystem (required for the nono-nri plugin to connect)
+#   - Register the nono-runc runtime handler (required for the nono-runc RuntimeClass)
+# Disable only if your cluster provisioner already handles both.
+nodeSetup:
+  enabled: true
+  nri:
+    socketPath: /var/run/nri/nri.sock
+    pluginPath: /opt/nri/plugins
+    configPath: /etc/nri/conf.d
+
 # Kata Containers node provisioning.
 # When enabled, a privileged DaemonSet (daemonset-kata-setup) installs the
 # Landlock-enabled kata kernel and nono-embedded rootfs onto each cluster node
@@ -55,8 +72,8 @@ resources: {}
 #     config file to appear before proceeding).
 #
 # Images are published by the GHA workflows on every nono-nri release:
-#   kata.kernelImage: ghcr.io/<org>/kata-kernel-landlock:<kata-version>
-#   kata.rootfsImage: ghcr.io/<org>/kata-rootfs-nono:<kata-version>-<nono-version>
+#   kata.kernelImage: ghcr.io/kubefence/kata-kernel-landlock:<kata-version>
+#   kata.rootfsImage: ghcr.io/kubefence/kata-rootfs-nono:<kata-version>-<nono-version>
 kata:
   enabled: false
 
@@ -71,11 +88,6 @@ kata:
 
   # Path to the kata QEMU configuration file written by kata-deploy.
   qemuConfigPath: /opt/kata/share/defaults/kata-containers/runtimes/qemu/configuration-qemu.toml
-
-  # Host path to containerd's config file.
-  # The setup DaemonSet appends the kata-nono-qemu runtime handler stanza
-  # and sends SIGHUP to containerd to reload without restarting.
-  containerdConfigPath: /etc/containerd/config.toml
 
   qemu:
     # Additional machine accelerators for the QEMU hypervisor.

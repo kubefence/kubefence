@@ -97,7 +97,7 @@ spec:
               NONO_ROOTFS="${SHARE_DIR}/kata-confidential-nono.image"
               KATA_CFG_DIR="$(dirname ${KATA_CFG})"
               KATA_CFG_NONO="${KATA_CFG_DIR}/configuration-kata-nono-qemu.toml"
-              CONTAINERD_CFG="{{ .Values.kata.containerdConfigPath }}"
+              CONTAINERD_CFG="{{ .Values.containerdConfigPath }}"
 
               # ── Patch main kata QEMU config: update kernel path ──────────
               sed -i "s|^kernel = .*|kernel = \"${NONO_KERNEL}\"|" "${KATA_CFG}"
@@ -153,7 +153,7 @@ spec:
             - name: kata-config-dir
               mountPath: {{ .Values.kata.qemuConfigPath | dir }}
             - name: containerd-config-dir
-              mountPath: {{ .Values.kata.containerdConfigPath | dir }}
+              mountPath: {{ .Values.containerdConfigPath | dir }}
             - name: run-containerd
               mountPath: /run/containerd
               readOnly: true
@@ -184,7 +184,7 @@ spec:
             type: DirectoryOrCreate
         - name: containerd-config-dir
           hostPath:
-            path: {{ .Values.kata.containerdConfigPath | dir }}
+            path: {{ .Values.containerdConfigPath | dir }}
             type: DirectoryOrCreate
         - name: run-containerd
           hostPath:
