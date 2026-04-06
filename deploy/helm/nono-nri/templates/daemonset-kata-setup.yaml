@@ -1,10 +1,4 @@
 {{- if .Values.kata.enabled }}
-{{- if not .Values.kata.kernelImage }}
-  {{- fail "kata.kernelImage is required when kata.enabled=true (e.g. ghcr.io/<org>/kata-kernel-landlock:<kata-version>)" }}
-{{- end }}
-{{- if not .Values.kata.rootfsImage }}
-  {{- fail "kata.rootfsImage is required when kata.enabled=true (e.g. ghcr.io/<org>/kata-rootfs-nono:<kata-version>-<nono-version>)" }}
-{{- end }}
 ---
 apiVersion: apps/v1
 kind: DaemonSet

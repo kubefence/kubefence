@@ -1,15 +1,11 @@
 # Namespace for all resources
 namespace: kube-system
 
-# Container image.
-# For production set repository to the GHCR path published by release.yaml:
-#   image.repository: ghcr.io/<org>/nono-nri
-#   image.tag: <semver>        # e.g. 1.0.0
-#   image.pullPolicy: IfNotPresent
-# The default bare name is used by deploy.sh which loads the image directly
-# into the Kind cluster's containerd namespace before calling helm.
+# Container image — published by .github/workflows/release.yaml.
+# For dev (Kind) deploy.sh overrides repository/tag via --set to point at
+# the locally-built image loaded into the cluster.
 image:
-  repository: nono-nri
+  repository: ghcr.io/kubefence/kubefence
   tag: latest
   pullPolicy: IfNotPresent
 
@@ -65,10 +61,10 @@ kata:
   enabled: false
 
   # OCI image carrying /vmlinux — built by .github/workflows/kata-kernel.yaml
-  kernelImage: ""
+  kernelImage: ghcr.io/kubefence/kata-kernel-landlock:latest
 
   # OCI image carrying /kata-containers-confidential.image — built by kata-rootfs.yaml
-  rootfsImage: ""
+  rootfsImage: ghcr.io/kubefence/kata-rootfs-nono:latest
 
   # Directory where kata-deploy installs kata share files on each node.
   shareDir: /opt/kata/share/kata-containers
