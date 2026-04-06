@@ -1,0 +1,9 @@
+{{- if .Values.runtimeClasses.nonoRunc.enabled }}
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: nono-runc
+  labels:
+    {{- include "nono-nri.labels" . | nindent 4 }}
+handler: nono-runc
+{{- end }}
