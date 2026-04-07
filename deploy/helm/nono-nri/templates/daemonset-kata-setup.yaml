@@ -49,10 +49,14 @@ spec:
               readOnly: true
 
         # ── 2. Install Landlock-enabled kata kernel ──────────────────────────
-        # The kata-kernel-landlock image (FROM scratch + static cp) copies
-        # /vmlinux to the destination supplied in args.
+        # The kata-kernel-landlock image (FROM scratch + static /bin/cp) copies
+        # /vmlinux to the destination on the mounted kata share hostPath.
+        # command+args are set explicitly rather than relying on ENTRYPOINT so
+        # the intent is clear in kubectl describe and the chart is not fragile
+        # to image metadata changes.
         - name: install-kata-kernel
           image: {{ .Values.kata.kernelImage | quote }}
+          command: ["/bin/cp", "/vmlinux"]
           args:
             - {{ printf "%s/vmlinux-landlock.container" .Values.kata.shareDir | quote }}
           securityContext:
@@ -65,10 +69,11 @@ spec:
               mountPath: {{ .Values.kata.shareDir }}
 
         # ── 3. Install nono-embedded kata rootfs ─────────────────────────────
-        # The kata-rootfs-nono image (FROM scratch + static cp) copies
-        # /kata-containers-confidential.image to the destination in args.
+        # The kata-rootfs-nono image (FROM scratch + static /bin/cp) copies
+        # /kata-containers-confidential.image to the destination.
         - name: install-kata-rootfs
           image: {{ .Values.kata.rootfsImage | quote }}
+          command: ["/bin/cp", "/kata-containers-confidential.image"]
           args:
             - {{ printf "%s/kata-confidential-nono.image" .Values.kata.shareDir | quote }}
           securityContext:
