@@ -1,4 +1,4 @@
-# nono-nri
+# kubefence
 
 > **⚠️ Proof of concept — not for production use.**
 > This is experimental test code. It is provided as-is with no guarantees of
@@ -7,11 +7,11 @@
 An [NRI (Node Resource Interface)](https://github.com/containerd/nri) plugin for Kubernetes that
 transparently sandboxes container commands using [nono](https://nono.sh), a kernel-enforced
 sandbox CLI built on Linux Landlock. 
-It should be pretty straightforward to switch from nono to an alternative.
+It should be pretty straightforward to switch from nono to an alternative process sandboxing mechanism.
 
 **Kata Containers is the default and preferred runtime.** The plugin intercepts container
 creation and prepends `nono wrap` to `process.args` via `ContainerAdjustment.SetArgs()`.
-Runc is supported as an opt-in alternative (`KATA=false`).
+Runc is supported as an opt-in alternative.
 
 There are multiple reasons for Kata containers being the preferred runtime
 
@@ -20,8 +20,10 @@ There are multiple reasons for Kata containers being the preferred runtime
   must escape the VM protection as well.
 - Ability to use a specific kernel config for the workloads, since pods runs in a VM
 - Execs triggered via `kubectl exec` is **blocked at the kata-agent level for
-  Kata pods** 
+  Kata pods**.
 
+If you are using this for `runc` ensure you disable exec via admission policies.
+An example is using [Kyverno](https://kyverno.io/policies/other/block-pod-exec-by-pod-name/block-pod-exec-by-pod-name/)
 
 ## Threat Model
 
@@ -92,9 +94,9 @@ Published images (built by CI on every release):
 |-------|----------|
 | `ghcr.io/kubefence/kubefence:latest` | NRI plugin (`10-nono-nri`) + `nono` sandbox binary |
 | `ghcr.io/kubefence/kata-kernel-landlock:latest` | Kata guest kernel with `CONFIG_SECURITY_LANDLOCK=y` |
-| `ghcr.io/kubefence/kata-rootfs-nono:latest` | Kata confidential rootfs with `nono` pre-installed |
+| `ghcr.io/kubefence/kata-rootfs-nono:latest` | Kata rootfs with `nono` binary pre-installed |
+| `ghcr.io/kubefence/charts/nono-nri:latest` | Helm charts for deployment |
 
-No local build is required to deploy.
 
 ## Requirements
 
@@ -103,121 +105,10 @@ No local build is required to deploy.
 | Linux kernel | 5.13+ (Landlock LSM) |
 | CRI-O | 1.35+ (NRI with `AdjustArgs` support) |
 | containerd | 2.2.0+ (NRI with `AdjustArgs` support) |
-| Go | 1.24+ |
-| nono binary | built from source via `make nono-build` (glibc, no libdbus/libsystemd) |
-
-## Build
-
-```bash
-# Build the nono binary from source (requires rustup)
-make nono-build      # outputs ./nono (glibc, no libdbus/libsystemd)
-
-# Build the plugin binary
-make build           # outputs ./10-nono-nri
-
-# Build the Docker image (bundles plugin + nono binary)
-make docker-build    # outputs nono-nri:latest
-```
 
 ## Deploy
 
-### Quick start with Kind
-
-Requires a host with KVM support. `KATA=true` and `KATA_ROOTFS=true` are the
-defaults — the deploy script installs Kata via helm, patches the QEMU config with
-a Landlock-enabled kernel, embeds nono in the guest VM image, and registers the
-`kata-nono-sandbox` RuntimeClass automatically.
-
-```bash
-git clone https://github.com/kubefence/kubefence
-cd kubefence
-
-# Default: Kata Containers + embedded nono rootfs (recommended)
-SKIP_BUILD=true \
-IMAGE=ghcr.io/kubefence/kubefence:latest \
-bash deploy/kind/deploy.sh
-
-# Run e2e tests (runc + Kata)
-RUNTIME=containerd CLUSTER_NAME=nono-containerd bash deploy/kind/e2e.sh
-
-# Tear down
-kind delete cluster --name nono-containerd
-```
-
-Use the `kata-nono-sandbox` RuntimeClass for all production workloads:
-
-```yaml
-spec:
-  runtimeClassName: kata-nono-sandbox
-  containers:
-    - name: myapp
-      image: myimage:latest
-```
-
-This gives you two enforcement layers: Landlock filesystem confinement inside the
-VM, and `kubectl exec` blocked at the hypervisor by the kata-agent OPA policy
-(`deploy/kind/kata-rootfs/policy.rego`).
-
-**runc opt-in** (no KVM required, no exec blocking):
-
-```bash
-KATA=false \
-SKIP_BUILD=true \
-IMAGE=ghcr.io/kubefence/kubefence:latest \
-bash deploy/kind/deploy.sh
-```
-
-**Building from source:**
-
-```bash
-# containerd (default)
-make kind-e2e
-
-# CRI-O
-make kind-e2e RUNTIME=crio
-
-# Deploy only, keep cluster alive for manual testing
-make kind-up
-make kind-test   # run e2e suite against the running cluster
-make kind-down   # tear down
-```
-
-See [`deploy/kind/README.md`](deploy/kind/README.md) for full Kind deployment docs.
-
-### Production — runc (containerd)
-
-Deploy on any containerd cluster. The Helm chart automatically enables NRI
-and registers the `nono-runc` handler on every node via a privileged
-DaemonSet — no manual containerd config changes required.
-
-**Prerequisites:** containerd 2.2.0+, Linux 5.13+, Helm 3.8+.
-
-```bash
-# Install nono-nri
-helm upgrade --install nono-nri \
-  oci://ghcr.io/kubefence/charts/nono-nri \
-  --version 1.0.0 \
-  --namespace kube-system \
-  --wait
-
-# Verify all three DaemonSets are ready
-kubectl rollout status daemonset/nono-nri-node-setup -n kube-system
-kubectl rollout status daemonset/nono-nri            -n kube-system
-```
-
-Apply the `nono-runc` RuntimeClass to workloads:
-
-```yaml
-spec:
-  runtimeClassName: nono-runc
-  containers:
-    - name: myapp
-      image: myimage:latest
-```
-
----
-
-### Production — Kata Containers (containerd)
+### Kata Containers (containerd)
 
 Kata adds a second enforcement layer: each pod runs inside a QEMU/KVM
 micro-VM and `kubectl exec` is blocked at the hypervisor by the kata-agent
@@ -308,6 +199,37 @@ helm upgrade nono-nri \
   --reuse-values
 ```
 
+### runc (containerd)
+
+Deploy on any containerd cluster. The Helm chart automatically enables NRI
+and registers the `nono-runc` handler on every node via a privileged
+DaemonSet — no manual containerd config changes required.
+
+**Prerequisites:** containerd 2.2.0+, Linux 5.13+, Helm 3.8+.
+
+```bash
+# Install nono-nri
+helm upgrade --install nono-nri \
+  oci://ghcr.io/kubefence/charts/nono-nri \
+  --version 1.0.0 \
+  --namespace kube-system \
+  --wait
+
+# Verify all three DaemonSets are ready
+kubectl rollout status daemonset/nono-nri-node-setup -n kube-system
+kubectl rollout status daemonset/nono-nri            -n kube-system
+```
+
+Apply the `nono-runc` RuntimeClass to workloads:
+
+```yaml
+spec:
+  runtimeClassName: nono-runc
+  containers:
+    - name: myapp
+      image: myimage:latest
+```
+
 ## Verify
 
 ```bash
@@ -354,62 +276,11 @@ Invalid values are silently ignored and fall back to `default_profile`.
 
 ## CI
 
-| Workflow | Trigger | Publishes |
-|----------|---------|-----------|
-| `lint` | push / PR to main | — (gofmt, go vet, mod tidy, unit tests) |
-| `release` | GitHub release published | `ghcr.io/kubefence/kubefence:<version>` |
-| `kata-kernel` | release + push (Dockerfile/workflow/landlock.conf) | `ghcr.io/kubefence/kata-kernel-landlock:<kata-version>` |
-| `kata-rootfs` | release + push (Dockerfile/inject.sh/policy.rego) | `ghcr.io/kubefence/kata-rootfs-nono:<kata-version>-<nono-version>` |
-| `helm-publish` | release + push (chart files) | `oci://ghcr.io/kubefence/charts/nono-nri:<version>` |
+Images are published automatically on each release. See [DEVELOPMENT.md](DEVELOPMENT.md) for CI workflow details.
 
-The pinned `NONO_VERSION` in
-[`.github/workflows/release.yaml`](.github/workflows/release.yaml)
-controls which nono release is baked into the image. Update it when bumping nono.
+## Contributing
 
-## E2E Tests
-
-```bash
-# Full cycle (deploy + test + teardown)
-make kind-e2e                    # 17 checks (runc only)
-make kind-e2e KATA=true          # 20 checks (runc + Kata Containers)
-make kind-e2e RUNTIME=crio       # 16/17 pass; Kata tests skipped (see note below)
-
-# Test against an existing cluster
-make kind-test
-```
-
-> **CRI-O + Kata in kind:** Kata Containers tests (Tests 5/6) do not pass when
-> `RUNTIME=crio`. The `quay.io/confidential-containers/kind-crio` image uses
-> fuse-overlayfs as CRI-O's storage driver inside Docker. CRI-O calls
-> `Unmount()` on the container overlay immediately after `StartContainer` while
-> the kata shim's virtiofsd bind-mount still holds a reference, causing the
-> sandbox to be torn down. This is a CRI-O 1.35 + kata 3.28 storage lifecycle
-> incompatibility that does not affect bare-metal CRI-O deployments.
-
-## Project Layout
-
-```
-.github/workflows/
-  lint.yaml            # CI: gofmt, vet, mod tidy, unit tests
-  release.yaml         # CD: build + push image to GHCR on release
-cmd/nono-nri/          # plugin entrypoint (main.go)
-internal/nri/
-  plugin.go            # CreateContainer / StopContainer / RemoveContainer handlers
-  adjustments.go       # BuildAdjustment: SetArgs + AddMount
-  filter.go            # ShouldSandbox: RuntimeClass matching
-  profile.go           # ResolveProfile: annotation → profile name
-  config.go            # TOML config loader
-  kernel.go            # Landlock kernel version check (≥5.13)
-  state.go             # Per-container metadata dir lifecycle
-internal/log/          # slog JSON handler factory
-deploy/
-  daemonset.yaml       # Kubernetes DaemonSet (plugin + init container)
-  runtimeclass-kata.yaml  # RuntimeClass: kata-nono-sandbox / handler: kata-qemu
-  test-pod.yaml        # Sample sandboxed pod for verification
-  crio-nri.conf        # CRI-O NRI config snippet
-  containerd-config.toml  # containerd NRI config snippet
-  kind/                # Kind cluster configs, deploy.sh, e2e.sh
-```
+See [DEVELOPMENT.md](DEVELOPMENT.md) for build instructions, local development with Kind, and project layout.
 
 ## License
 
