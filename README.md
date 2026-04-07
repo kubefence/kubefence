@@ -86,14 +86,15 @@ PID 1:    /usr/bin/myapp --flag   (nono exec'd the app; kubectl exec blocked by 
 
 ## Container image
 
-Published image (built by CI on every release):
+Published images (built by CI on every release):
 
-```
-ghcr.io/bpradipt/kubefence:latest
-```
+| Image | Contents |
+|-------|----------|
+| `ghcr.io/kubefence/kubefence:latest` | NRI plugin (`10-nono-nri`) + `nono` sandbox binary |
+| `ghcr.io/kubefence/kata-kernel-landlock:latest` | Kata guest kernel with `CONFIG_SECURITY_LANDLOCK=y` |
+| `ghcr.io/kubefence/kata-rootfs-nono:latest` | Kata confidential rootfs with `nono` pre-installed |
 
-The image bundles the compiled `10-nono-nri` NRI plugin and the `nono` sandbox
-binary. No local build is required to try it out.
+No local build is required to deploy.
 
 ## Requirements
 
@@ -128,13 +129,12 @@ a Landlock-enabled kernel, embeds nono in the guest VM image, and registers the
 `kata-nono-sandbox` RuntimeClass automatically.
 
 ```bash
-git clone https://github.com/bpradipt/kubefence
+git clone https://github.com/kubefence/kubefence
 cd kubefence
 
 # Default: Kata Containers + embedded nono rootfs (recommended)
 SKIP_BUILD=true \
-IMAGE=ghcr.io/bpradipt/kubefence:latest \
-KATA_KERNEL_IMAGE=ghcr.io/bpradipt/kata-kernel-landlock:3.28.0 \
+IMAGE=ghcr.io/kubefence/kubefence:latest \
 bash deploy/kind/deploy.sh
 
 # Run e2e tests (runc + Kata)
@@ -163,7 +163,7 @@ VM, and `kubectl exec` blocked at the hypervisor by the kata-agent OPA policy
 ```bash
 KATA=false \
 SKIP_BUILD=true \
-IMAGE=ghcr.io/bpradipt/kubefence:latest \
+IMAGE=ghcr.io/kubefence/kubefence:latest \
 bash deploy/kind/deploy.sh
 ```
 
@@ -184,43 +184,99 @@ make kind-down   # tear down
 
 See [`deploy/kind/README.md`](deploy/kind/README.md) for full Kind deployment docs.
 
-### Production (CRI-O or containerd)
+### Production — runc (containerd)
 
-**1. Configure the runtime**
+Deploy on any containerd cluster. The Helm chart automatically enables NRI
+and registers the `nono-runc` handler on every node via a privileged
+DaemonSet — no manual containerd config changes required.
 
-*CRI-O* — copy [`deploy/crio-nri.conf`](deploy/crio-nri.conf) to `/etc/crio/crio.conf.d/`:
-```bash
-cp deploy/crio-nri.conf /etc/crio/crio.conf.d/10-nono-nri.conf
-systemctl restart crio
-```
-
-*containerd* — merge [`deploy/containerd-config.toml`](deploy/containerd-config.toml) into `/etc/containerd/config.toml`,
-then `systemctl restart containerd`.
-
-**2. Install the plugin config**
+**Prerequisites:** containerd 2.2.0+, Linux 5.13+, Helm 3.8+.
 
 ```bash
-cp deploy/10-nono-nri.toml.example /etc/nri/conf.d/10-nono-nri.toml
-# Edit: set runtime_classes, nono_bin_path, default_profile
+# Install nono-nri
+helm upgrade --install nono-nri \
+  oci://ghcr.io/kubefence/charts/nono-nri \
+  --version 1.0.0 \
+  --namespace kube-system \
+  --wait
+
+# Verify all three DaemonSets are ready
+kubectl rollout status daemonset/nono-nri-node-setup -n kube-system
+kubectl rollout status daemonset/nono-nri            -n kube-system
 ```
 
-**3. Apply Kubernetes manifests**
+Apply the `nono-runc` RuntimeClass to workloads:
+
+```yaml
+spec:
+  runtimeClassName: nono-runc
+  containers:
+    - name: myapp
+      image: myimage:latest
+```
+
+---
+
+### Production — Kata Containers (containerd)
+
+Kata adds a second enforcement layer: each pod runs inside a QEMU/KVM
+micro-VM and `kubectl exec` is blocked at the hypervisor by the kata-agent
+OPA policy. The nono Landlock sandbox runs inside the VM.
+
+**Prerequisites:** containerd 2.2.0+, Linux 5.13+, Helm 3.x, KVM
+(`/dev/kvm` available on nodes).
+
+**Step 1 — Install kata-deploy**
 
 ```bash
-# Register the sandboxed RuntimeClass
-kubectl apply -f deploy/runtimeclass-kata.yaml
+helm upgrade --install kata-deploy \
+  oci://ghcr.io/kata-containers/kata-deploy-charts/kata-deploy \
+  --version 3.28.0 \
+  --namespace kube-system \
+  --set k8sDistribution=k8s \
+  --set shims.disableAll=true \
+  --set shims.qemu.enabled=true \
+  --wait --timeout 10m
 
-# Deploy the plugin DaemonSet using the published image
-IMAGE=ghcr.io/bpradipt/kubefence:latest
-sed "s|image: nono-nri:latest|image: ${IMAGE}|g" deploy/daemonset.yaml \
-  | kubectl apply -f -
-
-kubectl rollout status daemonset/nono-nri -n kube-system
+kubectl rollout status daemonset/kata-deploy -n kube-system --timeout=5m
 ```
 
-**4. Apply the RuntimeClass to workloads**
+**Step 2 — Install nono-nri with Kata support**
 
-Add `runtimeClassName: kata-nono-sandbox` to any pod spec:
+```bash
+helm upgrade --install nono-nri \
+  oci://ghcr.io/kubefence/charts/nono-nri \
+  --version 1.0.0 \
+  --namespace kube-system \
+  --set kata.enabled=true \
+  --set runtimeClasses.kataNono.enabled=true \
+  --set runtimeClasses.kataNono.handler=kata-nono-qemu \
+  --set "config.runtimeClasses={nono-runc,kata-qemu,kata-nono-qemu}" \
+  --set "config.vmRootfsClasses={kata-nono-qemu}" \
+  --wait
+```
+
+The `kata-setup` DaemonSet will:
+- Pull `ghcr.io/kubefence/kata-kernel-landlock:latest` and install the
+  Landlock-enabled `vmlinux` onto each node
+- Pull `ghcr.io/kubefence/kata-rootfs-nono:latest` and install the
+  confidential rootfs (with `nono` pre-installed) onto each node
+- Patch the kata QEMU config to use the Landlock kernel
+- Create `configuration-kata-nono-qemu.toml` referencing the nono rootfs
+- Register the `kata-nono-qemu` runtime handler in containerd
+
+**Step 3 — Verify**
+
+```bash
+kubectl rollout status daemonset/nono-nri-node-setup  -n kube-system
+kubectl rollout status daemonset/nono-nri-kata-setup  -n kube-system
+kubectl rollout status daemonset/nono-nri              -n kube-system
+
+# Two RuntimeClasses should exist
+kubectl get runtimeclass nono-runc kata-nono-sandbox
+```
+
+Apply the `kata-nono-sandbox` RuntimeClass to workloads:
 
 ```yaml
 spec:
@@ -230,11 +286,26 @@ spec:
       image: myimage:latest
 ```
 
+This gives two enforcement layers: Landlock filesystem confinement inside
+the VM, and `kubectl exec` blocked at the hypervisor by the kata-agent OPA
+policy (`deploy/kind/kata-rootfs/policy.rego`).
+
 Optionally override the nono profile per pod:
+
 ```yaml
 metadata:
   annotations:
     nono.sh/profile: "strict"
+```
+
+**Upgrade nono-nri** (updates all three images atomically):
+
+```bash
+helm upgrade nono-nri \
+  oci://ghcr.io/kubefence/charts/nono-nri \
+  --version 1.1.0 \
+  --namespace kube-system \
+  --reuse-values
 ```
 
 ## Verify
@@ -253,7 +324,7 @@ kubectl exec nono-test -- ls -la /nono/nono
 # → -rwxr-xr-x 1 root root ... /nono/nono
 
 # Check plugin decision logs
-kubectl logs -n kube-system -l app=nono-nri | grep nono-test
+kubectl logs -n kube-system -l app.kubernetes.io/name=nono-nri | grep nono-test
 # → {"msg":"injected","decision":"inject","pod":"nono-test","profile":"default",...}
 
 # Cleanup
@@ -283,15 +354,17 @@ Invalid values are silently ignored and fall back to `default_profile`.
 
 ## CI
 
-| Workflow | Trigger | What it does |
-|----------|---------|-------------|
-| `lint` | push/PR to main | `gofmt`, `go vet`, `go mod tidy`, `go test -race` |
-| `release` | GitHub release published | Builds static nono from source, builds and pushes `ghcr.io/bpradipt/kubefence` to GHCR |
-| `kata-kernel` | weekly + `workflow_dispatch` + release | Builds a kata guest kernel with `CONFIG_SECURITY_LANDLOCK=y` and pushes `ghcr.io/bpradipt/kata-kernel-landlock:<kata-version>` to GHCR |
+| Workflow | Trigger | Publishes |
+|----------|---------|-----------|
+| `lint` | push / PR to main | — (gofmt, go vet, mod tidy, unit tests) |
+| `release` | GitHub release published | `ghcr.io/kubefence/kubefence:<version>` |
+| `kata-kernel` | release + push (Dockerfile/workflow/landlock.conf) | `ghcr.io/kubefence/kata-kernel-landlock:<kata-version>` |
+| `kata-rootfs` | release + push (Dockerfile/inject.sh/policy.rego) | `ghcr.io/kubefence/kata-rootfs-nono:<kata-version>-<nono-version>` |
+| `helm-publish` | release + push (chart files) | `oci://ghcr.io/kubefence/charts/nono-nri:<version>` |
 
-The nono version built from source is controlled by `NONO_VERSION` in
-[`.github/workflows/release.yaml`](.github/workflows/release.yaml).
-Update this value when bumping the pinned nono release.
+The pinned `NONO_VERSION` in
+[`.github/workflows/release.yaml`](.github/workflows/release.yaml)
+controls which nono release is baked into the image. Update it when bumping nono.
 
 ## E2E Tests
 

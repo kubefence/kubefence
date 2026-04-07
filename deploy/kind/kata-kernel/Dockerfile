@@ -87,10 +87,22 @@ RUN set -e; \
     cp vmlinux /build/vmlinux
 
 # ── Minimal final image ───────────────────────────────────────────────────────
-# FROM scratch images have no default CMD; Docker requires at least one of
-# CMD/ENTRYPOINT to be set to create a container (even a stopped one).
-# Setting CMD here means deploy.sh can do plain `docker create <image>` without
-# passing a dummy command on the CLI.
+# A statically-linked cp from busybox-uclibc is included so this image can
+# be used directly as a Kubernetes init container:
+#
+#   initContainers:
+#     - name: install-kata-kernel
+#       image: ghcr.io/<org>/kata-kernel-landlock:<version>
+#       args: ["/mnt/kata-share/vmlinux-landlock.container"]
+#       volumeMounts:
+#         - name: kata-share
+#           mountPath: /mnt/kata-share
+#
+# The ENTRYPOINT is "cp /vmlinux"; args supplies the destination.
+# For dev extraction with docker: docker create + docker cp still works.
+FROM busybox:1.37.0-uclibc AS busybox-static
 FROM scratch
+COPY --from=busybox-static /bin/cp /bin/cp
 COPY --from=builder /build/vmlinux /vmlinux
+ENTRYPOINT ["/bin/cp", "/vmlinux"]
 CMD [""]

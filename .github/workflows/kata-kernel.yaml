@@ -26,6 +26,7 @@ on:
     branches: [main, master]
     paths:
       - "deploy/kind/kata-kernel/Dockerfile"
+      - "deploy/kind/kata-kernel/configs/fragments/x86_64/landlock.conf"
       - ".github/workflows/kata-kernel.yaml"
 
 # Pinned kata-containers version used by all deployment tooling.

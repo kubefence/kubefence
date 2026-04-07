@@ -1,0 +1,198 @@
+{{- if .Values.kata.enabled }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "nono-nri.fullname" . }}-kata-setup
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "nono-nri.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kata-setup
+spec:
+  selector:
+    matchLabels:
+      {{- include "nono-nri.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: kata-setup
+  template:
+    metadata:
+      labels:
+        {{- include "nono-nri.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: kata-setup
+    spec:
+      automountServiceAccountToken: false
+      # hostPID is required so the configure-kata init container can locate
+      # and send SIGHUP to the containerd process for config reload.
+      hostPID: true
+      initContainers:
+
+        # ── 1. Wait for kata-deploy ──────────────────────────────────────────
+        # kata-deploy must install its binaries and write the QEMU config file
+        # before we patch it.  Poll until the file appears.
+        - name: wait-for-kata
+          image: busybox:1.37.0-uclibc
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Waiting for kata QEMU config at {{ .Values.kata.qemuConfigPath }}..."
+              until [ -f "{{ .Values.kata.qemuConfigPath }}" ]; do
+                sleep 5
+              done
+              echo "kata QEMU config ready."
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: kata-config-dir
+              mountPath: {{ .Values.kata.qemuConfigPath | dir }}
+              readOnly: true
+
+        # ── 2. Install Landlock-enabled kata kernel ──────────────────────────
+        # The kata-kernel-landlock image (FROM scratch + static /bin/cp) copies
+        # /vmlinux to the destination on the mounted kata share hostPath.
+        # command+args are set explicitly rather than relying on ENTRYPOINT so
+        # the intent is clear in kubectl describe and the chart is not fragile
+        # to image metadata changes.
+        - name: install-kata-kernel
+          image: {{ .Values.kata.kernelImage | quote }}
+          command: ["/bin/cp", "/vmlinux"]
+          args:
+            - {{ printf "%s/vmlinux-landlock.container" .Values.kata.shareDir | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: kata-share
+              mountPath: {{ .Values.kata.shareDir }}
+
+        # ── 3. Install nono-embedded kata rootfs ─────────────────────────────
+        # The kata-rootfs-nono image (FROM scratch + static /bin/cp) copies
+        # /kata-containers-confidential.image to the destination.
+        - name: install-kata-rootfs
+          image: {{ .Values.kata.rootfsImage | quote }}
+          command: ["/bin/cp", "/kata-containers-confidential.image"]
+          args:
+            - {{ printf "%s/kata-confidential-nono.image" .Values.kata.shareDir | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: kata-share
+              mountPath: {{ .Values.kata.shareDir }}
+
+        # ── 4. Patch kata config and register containerd handler ─────────────
+        # Privileged so it can write to host-owned kata config files and send
+        # SIGHUP to containerd for config reload without a full restart.
+        - name: configure-kata
+          image: alpine:3.20
+          securityContext:
+            privileged: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              KATA_CFG="{{ .Values.kata.qemuConfigPath }}"
+              SHARE_DIR="{{ .Values.kata.shareDir }}"
+              NONO_KERNEL="${SHARE_DIR}/vmlinux-landlock.container"
+              NONO_ROOTFS="${SHARE_DIR}/kata-confidential-nono.image"
+              KATA_CFG_DIR="$(dirname ${KATA_CFG})"
+              KATA_CFG_NONO="${KATA_CFG_DIR}/configuration-kata-nono-qemu.toml"
+              CONTAINERD_CFG="{{ .Values.containerdConfigPath }}"
+
+              # ── Patch main kata QEMU config: update kernel path ──────────
+              sed -i "s|^kernel = .*|kernel = \"${NONO_KERNEL}\"|" "${KATA_CFG}"
+              {{- if .Values.kata.qemu.machineAccelerators }}
+              # Set machine_accelerators (update existing line or insert after [hypervisor.qemu]).
+              if grep -q '^machine_accelerators' "${KATA_CFG}"; then
+                sed -i "s|^machine_accelerators = .*|machine_accelerators = \"{{ .Values.kata.qemu.machineAccelerators }}\"|" "${KATA_CFG}"
+              else
+                sed -i "s|\(\[hypervisor\.qemu\]\)|\1\nmachine_accelerators = \"{{ .Values.kata.qemu.machineAccelerators }}\"|" "${KATA_CFG}"
+              fi
+              {{- end }}
+              echo "Kata QEMU config patched (kernel → ${NONO_KERNEL})."
+
+              # ── Create kata-nono-qemu config: same as qemu but nono rootfs ─
+              cp "${KATA_CFG}" "${KATA_CFG_NONO}"
+              sed -i "s|^image = .*|image = \"${NONO_ROOTFS}\"|" "${KATA_CFG_NONO}"
+              echo "Created ${KATA_CFG_NONO} (rootfs → ${NONO_ROOTFS})."
+
+              # ── Register kata-nono-qemu handler in containerd config ───────
+              # Idempotent: skip if stanza already present.
+              if [ ! -f "${CONTAINERD_CFG}" ]; then
+                echo "Warning: containerd config not found at ${CONTAINERD_CFG} — skipping handler registration."
+              elif grep -q 'runtimes\.kata-nono-qemu' "${CONTAINERD_CFG}"; then
+                echo "kata-nono-qemu already registered in ${CONTAINERD_CFG}."
+              else
+                cat >> "${CONTAINERD_CFG}" << TOMLEOF
+
+              [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kata-nono-qemu]
+                runtime_type = "io.containerd.kata-qemu.v2"
+                runtime_path = "/opt/kata/bin/containerd-shim-kata-v2"
+                privileged_without_host_devices = true
+                pod_annotations = ["io.katacontainers.*"]
+                [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kata-nono-qemu.options]
+                  ConfigPath = "${KATA_CFG_NONO}"
+              TOMLEOF
+                echo "Registered kata-nono-qemu in ${CONTAINERD_CFG}."
+
+                # ── Reload containerd config via SIGHUP ──────────────────────
+                # Requires hostPID: true on the pod spec.
+                CONTAINERD_PID=$(cat /run/containerd/containerd.pid 2>/dev/null \
+                  || pidof containerd 2>/dev/null || true)
+                if [ -n "${CONTAINERD_PID}" ]; then
+                  kill -HUP "${CONTAINERD_PID}" \
+                    && echo "Sent SIGHUP to containerd (PID ${CONTAINERD_PID})." \
+                    || echo "Warning: SIGHUP failed — manual containerd reload may be needed."
+                else
+                  echo "Warning: containerd PID not found — manual reload required."
+                fi
+              fi
+          volumeMounts:
+            - name: kata-share
+              mountPath: {{ .Values.kata.shareDir }}
+            - name: kata-config-dir
+              mountPath: {{ .Values.kata.qemuConfigPath | dir }}
+            - name: containerd-config-dir
+              mountPath: {{ .Values.containerdConfigPath | dir }}
+            - name: run-containerd
+              mountPath: /run/containerd
+              readOnly: true
+
+      # Long-running container keeps the pod alive so DaemonSet rollout status
+      # reflects node readiness and kubectl can inspect logs.
+      containers:
+        - name: kata-setup-complete
+          image: busybox:1.37.0-uclibc
+          command: ["/bin/sh", "-c", "echo 'kata node setup complete'; sleep infinity"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+
+      volumes:
+        - name: kata-share
+          hostPath:
+            path: {{ .Values.kata.shareDir }}
+            type: DirectoryOrCreate
+        - name: kata-config-dir
+          hostPath:
+            path: {{ .Values.kata.qemuConfigPath | dir }}
+            type: DirectoryOrCreate
+        - name: containerd-config-dir
+          hostPath:
+            path: {{ .Values.containerdConfigPath | dir }}
+            type: DirectoryOrCreate
+        - name: run-containerd
+          hostPath:
+            path: /run/containerd
+            type: DirectoryOrCreate
+{{- end }}

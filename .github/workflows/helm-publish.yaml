@@ -1,0 +1,94 @@
+name: helm-publish
+
+# Packages and pushes the nono-nri Helm chart to GHCR as an OCI artifact.
+#
+# Chart: oci://ghcr.io/<owner>/charts/nono-nri
+#
+# Install:
+#   helm upgrade --install nono-nri \
+#     oci://ghcr.io/<owner>/charts/nono-nri \
+#     --version <semver> --namespace kube-system
+#
+# Triggered:
+#   - On release: chart version = release tag (v1.2.3 → 1.2.3)
+#   - On push to main (chart files changed): pre-release version 0.0.0-<sha>
+#   - workflow_dispatch: manual with optional version override
+
+on:
+  release:
+    types: [published]
+  push:
+    branches: [main, master]
+    paths:
+      - "deploy/helm/nono-nri/**"
+      - ".github/workflows/helm-publish.yaml"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Chart version (e.g. 1.0.0). Defaults to 0.0.0-<sha>."
+        required: false
+        default: ""
+
+env:
+  REGISTRY: ghcr.io
+  CHART_REPO: ghcr.io/${{ github.repository_owner }}/charts
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Resolve chart version
+        id: ver
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            VERSION="${VERSION#v}"   # strip leading 'v' from tag
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="0.0.0-$(git rev-parse --short HEAD)"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Chart version: $VERSION"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package chart
+        run: |
+          # Stamp version into a working copy — the source chart is not modified.
+          cp -r deploy/helm/nono-nri /tmp/nono-nri-chart
+          sed -i "s/^version:.*/version: ${{ steps.ver.outputs.version }}/" \
+            /tmp/nono-nri-chart/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${{ steps.ver.outputs.version }}\"/" \
+            /tmp/nono-nri-chart/Chart.yaml
+          helm package /tmp/nono-nri-chart --destination /tmp/charts
+          ls -lh /tmp/charts/
+
+      - name: Push chart to GHCR
+        run: |
+          helm push /tmp/charts/nono-nri-${{ steps.ver.outputs.version }}.tgz \
+            oci://${{ env.CHART_REPO }}
+
+      - name: Summary
+        run: |
+          echo "### Helm chart published" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Version:** \`${{ steps.ver.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```bash' >> "$GITHUB_STEP_SUMMARY"
+          echo "helm upgrade --install nono-nri \\" >> "$GITHUB_STEP_SUMMARY"
+          echo "  oci://${{ env.CHART_REPO }}/nono-nri \\" >> "$GITHUB_STEP_SUMMARY"
+          echo "  --version ${{ steps.ver.outputs.version }} \\" >> "$GITHUB_STEP_SUMMARY"
+          echo "  --namespace kube-system" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,9 @@
+{{- if .Values.runtimeClasses.kataNono.enabled }}
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: kata-nono-sandbox
+  labels:
+    {{- include "nono-nri.labels" . | nindent 4 }}
+handler: {{ .Values.runtimeClasses.kataNono.handler }}
+{{- end }}

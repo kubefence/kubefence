@@ -1,0 +1,96 @@
+# Namespace for all resources
+namespace: kube-system
+
+# Container image — published by .github/workflows/release.yaml.
+# For dev (Kind) deploy.sh overrides repository/tag via --set to point at
+# the locally-built image loaded into the cluster.
+image:
+  repository: ghcr.io/kubefence/kubefence
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Optional ServiceAccount
+serviceAccount:
+  create: false
+
+# NRI plugin TOML configuration
+# These values are rendered into /etc/nri/conf.d/10-nono-nri.toml
+config:
+  runtimeClasses:
+    - nono-runc
+  defaultProfile: "default"
+  nonoBinPath: "/opt/nono-nri/nono"
+  socketPath: ""
+  vmRootfsClasses: []
+
+# Host paths for volume mounts
+hostPaths:
+  nriSocket: /var/run/nri
+  nonoHostDir: /opt/nono-nri
+  nriPlugins: /opt/nri/plugins
+
+# RuntimeClass creation
+runtimeClasses:
+  nonoRunc:
+    enabled: true
+  kataNono:
+    enabled: false
+    handler: "kata-qemu"
+
+# DaemonSet tolerations
+tolerations:
+  - operator: Exists
+
+# Resource requests/limits (empty by default)
+resources: {}
+
+# Host path to containerd's configuration file.
+# Shared by the nodeSetup and kata DaemonSets for config patching.
+containerdConfigPath: /etc/containerd/config.toml
+
+# Node-level containerd configuration.
+# When enabled, a privileged DaemonSet (daemonset-node-setup) patches
+# containerd on each node to:
+#   - Enable the NRI subsystem (required for the nono-nri plugin to connect)
+#   - Register the nono-runc runtime handler (required for the nono-runc RuntimeClass)
+# Disable only if your cluster provisioner already handles both.
+nodeSetup:
+  enabled: true
+  nri:
+    socketPath: /var/run/nri/nri.sock
+    pluginPath: /opt/nri/plugins
+    configPath: /etc/nri/conf.d
+
+# Kata Containers node provisioning.
+# When enabled, a privileged DaemonSet (daemonset-kata-setup) installs the
+# Landlock-enabled kata kernel and nono-embedded rootfs onto each cluster node
+# and configures the kata-nono-qemu containerd runtime handler.
+#
+# Prerequisites:
+#   - kata-deploy must be installed and its DaemonSet must be fully rolled out
+#     before nono-nri is installed (the setup DaemonSet waits for the kata QEMU
+#     config file to appear before proceeding).
+#
+# Images are published by the GHA workflows on every nono-nri release:
+#   kata.kernelImage: ghcr.io/kubefence/kata-kernel-landlock:<kata-version>
+#   kata.rootfsImage: ghcr.io/kubefence/kata-rootfs-nono:<kata-version>-<nono-version>
+kata:
+  enabled: false
+
+  # OCI image carrying /vmlinux — built by .github/workflows/kata-kernel.yaml
+  kernelImage: ghcr.io/kubefence/kata-kernel-landlock:latest
+
+  # OCI image carrying /kata-containers-confidential.image — built by kata-rootfs.yaml
+  rootfsImage: ghcr.io/kubefence/kata-rootfs-nono:latest
+
+  # Directory where kata-deploy installs kata share files on each node.
+  shareDir: /opt/kata/share/kata-containers
+
+  # Path to the kata QEMU configuration file written by kata-deploy.
+  qemuConfigPath: /opt/kata/share/defaults/kata-containers/runtimes/qemu/configuration-qemu.toml
+
+  qemu:
+    # Additional machine accelerators for the QEMU hypervisor.
+    # Leave empty for bare-metal nodes.
+    # Set to "kernel_irqchip=split" for nested-KVM environments (e.g. Kind).
+    machineAccelerators: ""

@@ -141,8 +141,6 @@ fi
 echo ""
 echo "==> Configuring node for $RUNTIME..."
 
-docker exec "$NODE" sh -c "mkdir -p /etc/nri/conf.d /opt/nono-nri /opt/nri/plugins /var/run/nri"
-
 if [[ "$RUNTIME" == "crio" ]]; then
   # Register a dedicated nono-runc runtime handler in CRI-O
   docker exec "$NODE" sh -c "
@@ -460,76 +458,84 @@ CONTAINERD_EOF
   fi
 fi
 
-# ── Install TOML config ───────────────────────────────────────────────────────
-# Handler names must match what the CRI runtime registers (not the RuntimeClass name).
-#   nono-runc        — runc + bind-mount nono delivery (always)
-#   kata-qemu        — Kata VM + bind-mount nono via virtiofs (kata-nono-sandbox)
-#   kata-nono-qemu   — Kata VM + nono embedded in guest rootfs (kata-nono-sandbox RC)
-if [[ "$KATA" == "true" && "$KATA_ROOTFS" == "true" ]]; then
-  RUNTIME_CLASSES='["nono-runc", "kata-qemu", "kata-nono-qemu"]'
-  TOML=$(cat <<EOF
-runtime_classes = ${RUNTIME_CLASSES}
-default_profile = "default"
-nono_bin_path = "/opt/nono-nri/nono"
-socket_path = ""
-vm_rootfs_classes = ["kata-nono-qemu"]
-EOF
-)
-elif [[ "$KATA" == "true" ]]; then
-  RUNTIME_CLASSES='["nono-runc", "kata-qemu"]'
-  TOML=$(cat <<EOF
-runtime_classes = ${RUNTIME_CLASSES}
-default_profile = "default"
-nono_bin_path = "/opt/nono-nri/nono"
-socket_path = ""
-EOF
-)
-else
-  RUNTIME_CLASSES='["nono-runc"]'
-  TOML=$(cat <<EOF
-runtime_classes = ${RUNTIME_CLASSES}
-default_profile = "default"
-nono_bin_path = "/opt/nono-nri/nono"
-socket_path = ""
-EOF
-)
-fi
-docker exec "$NODE" sh -c "cat > /etc/nri/conf.d/10-nono-nri.toml <<'TOMLEOF'
-${TOML}
-TOMLEOF"
-
-# ── Apply Kubernetes manifests ────────────────────────────────────────────────
+# ── Wait for NRI socket before deploying ─────────────────────────────────────
+# The nono-nri plugin connects to containerd's NRI socket on startup.
+# Poll until the socket file exists so the DaemonSet pod never starts
+# before containerd has fully initialised its NRI subsystem.
 echo ""
-echo "==> Applying RuntimeClass (nono-runc)..."
-kubectl delete runtimeclass nono-runc --ignore-not-found 2>/dev/null || true
-kubectl apply -f "$REPO_ROOT/deploy/runtimeclass-runc.yaml"
-
-if [[ "$KATA" == "true" ]]; then
-  echo "==> Applying RuntimeClass (kata-nono-sandbox)..."
-  # handler is immutable — delete first to allow switching between virtiofs and embedded rootfs modes
-  kubectl delete runtimeclass kata-nono-sandbox --ignore-not-found 2>/dev/null || true
-  if [[ "$KATA_ROOTFS" == "true" ]]; then
-    # Embedded rootfs mode: kata-nono-sandbox → kata-nono-qemu handler
-    kubectl apply -f "$REPO_ROOT/deploy/runtimeclass-kata-nono-sandbox.yaml"
-  else
-    # Virtiofs bind-mount mode: kata-nono-sandbox → kata-qemu handler
-    kubectl apply -f "$REPO_ROOT/deploy/runtimeclass-kata.yaml"
+echo "==> Waiting for NRI socket (/var/run/nri/nri.sock)..."
+_NRI_WAIT=0
+until docker exec "$NODE" test -S /var/run/nri/nri.sock 2>/dev/null; do
+  if [[ $_NRI_WAIT -ge 60 ]]; then
+    echo "ERROR: NRI socket not created after 60 s"
+    docker exec "$NODE" ls /var/run/nri/ 2>/dev/null || echo "  (directory missing)"
+    exit 1
   fi
-fi
+  sleep 1
+  ((_NRI_WAIT++))
+done
+echo "    NRI socket ready (waited ${_NRI_WAIT}s)."
 
-echo "==> Applying DaemonSet..."
-# Always substitute the image tag so the daemonset matches whatever IMAGE was requested.
+# ── Install nono-nri via Helm ─────────────────────────────────────────────────
+echo ""
+echo "==> Installing nono-nri (Helm chart)..."
+
+# Determine the image to deploy.
 DEPLOY_IMAGE="$IMAGE"
 if [[ "$RUNTIME" == "crio" && "$SKIP_BUILD" != "true" ]]; then
-  # For locally-built crio images the image was pushed to a local registry.
+  # For locally-built CRI-O images the image was pushed to a local registry.
   DEPLOY_IMAGE="$LOCAL_IMAGE"
 fi
-sed "s|image: nono-nri:latest|image: ${DEPLOY_IMAGE}|g" \
-  "$REPO_ROOT/deploy/daemonset.yaml" | kubectl apply -f -
 
+HELM_SET_ARGS=(
+  --set "image.repository=${DEPLOY_IMAGE%%:*}"
+  --set "image.tag=${DEPLOY_IMAGE##*:}"
+  --set "runtimeClasses.kataNono.enabled=${KATA}"
+)
+
+if [[ "$KATA" == "true" && "$KATA_ROOTFS" == "true" ]]; then
+  HELM_SET_ARGS+=(
+    --set "config.runtimeClasses={nono-runc,kata-qemu,kata-nono-qemu}"
+    --set "config.vmRootfsClasses={kata-nono-qemu}"
+    --set "runtimeClasses.kataNono.handler=kata-nono-qemu"
+  )
+elif [[ "$KATA" == "true" ]]; then
+  HELM_SET_ARGS+=(
+    --set "config.runtimeClasses={nono-runc,kata-qemu}"
+    --set "runtimeClasses.kataNono.handler=kata-qemu"
+  )
+fi
+
+helm upgrade --install nono-nri "$REPO_ROOT/deploy/helm/nono-nri" \
+  --namespace kube-system \
+  --wait --timeout 120s \
+  "${HELM_SET_ARGS[@]}"
+
+echo "==> nono-nri deployed."
+
+# Belt-and-suspenders: Helm 3 --wait has known DaemonSet readiness gaps.
+# Verify DaemonSet rollout explicitly, then emit pod diagnostics on failure
+# so the root cause is visible without a separate kubectl session.
 echo ""
 echo "==> Waiting for DaemonSet rollout..."
-kubectl rollout status daemonset/nono-nri -n kube-system --timeout=120s
+kubectl rollout status daemonset/nono-nri -n kube-system --timeout=120s || {
+  echo ""
+  echo "ERROR: DaemonSet rollout timed out. Pod diagnostics:"
+  kubectl get pods -n kube-system -l app.kubernetes.io/name=nono-nri -o wide 2>/dev/null || true
+  _POD=$(kubectl get pod -n kube-system -l app.kubernetes.io/name=nono-nri \
+           -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+  if [[ -n "$_POD" ]]; then
+    echo ""
+    kubectl describe pod -n kube-system "$_POD" 2>/dev/null | tail -40 || true
+    echo ""
+    echo "==> Init container logs (install-nono):"
+    kubectl logs -n kube-system "$_POD" -c install-nono 2>/dev/null || true
+    echo ""
+    echo "==> Main container logs (nono-nri):"
+    kubectl logs -n kube-system "$_POD" -c nono-nri 2>/dev/null || true
+  fi
+  exit 1
+}
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""

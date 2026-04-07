@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nono-nri.fullname" . }}-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "nono-nri.labels" . | nindent 4 }}
+data:
+  10-nono-nri.toml: |
+    runtime_classes = {{ .Values.config.runtimeClasses | toJson }}
+    default_profile = {{ .Values.config.defaultProfile | quote }}
+    nono_bin_path = {{ .Values.config.nonoBinPath | quote }}
+    socket_path = {{ .Values.config.socketPath | quote }}
+    {{- if .Values.config.vmRootfsClasses }}
+    vm_rootfs_classes = {{ .Values.config.vmRootfsClasses | toJson }}
+    {{- end }}

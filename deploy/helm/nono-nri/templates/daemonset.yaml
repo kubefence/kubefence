@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "nono-nri.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "nono-nri.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "nono-nri.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nono-nri.selectorLabels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "nono-nri.fullname" . }}
+      {{- end }}
+      initContainers:
+        - name: install-nono
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              cp /usr/local/bin/nono /opt/nono-nri/nono
+              chmod 0755 /opt/nono-nri/nono
+              # Generate wrapper scripts for common interpreters.
+              # These land at /nono/{sh,bash,...} inside containers (via the
+              # bind-mount of /opt/nono-nri -> /nono) and are found first when
+              # the NRI plugin prepends /nono to the container's PATH.
+              # Each wrapper calls nono wrap so kubectl exec is sandboxed too.
+              for pair in \
+                "sh:/bin/sh" \
+                "bash:/bin/bash" \
+                "ash:/bin/ash" \
+                "dash:/bin/dash" \
+                "python3:/usr/bin/python3" \
+                "python:/usr/bin/python" \
+                "node:/usr/bin/node" \
+                "ruby:/usr/bin/ruby" \
+                "perl:/usr/bin/perl"; do
+                name="${pair%%:*}"
+                real="${pair##*:}"
+                printf '#!/bin/sh\nexec /nono/nono wrap --profile "${NONO_PROFILE:-default}" -- %s "$@"\n' \
+                  "$real" > "/opt/nono-nri/$name"
+                chmod 0755 "/opt/nono-nri/$name"
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: nono-host-dir
+              mountPath: /opt/nono-nri
+            - name: nri-plugins-dir
+              mountPath: /opt/nri/plugins
+      containers:
+        - name: nono-nri
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /usr/local/bin/10-nono-nri
+            - --config
+            - /etc/nri/conf.d/10-nono-nri.toml
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          {{- if .Values.resources }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: nri-socket
+              mountPath: /var/run/nri
+              readOnly: true
+            - name: nono-host-dir
+              mountPath: /opt/nono-nri
+              readOnly: true
+            - name: nri-config
+              mountPath: /etc/nri/conf.d
+              readOnly: true
+            - name: nono-state
+              mountPath: /var/run/nono-nri
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      volumes:
+        - name: nri-socket
+          hostPath:
+            path: {{ .Values.hostPaths.nriSocket }}
+            type: DirectoryOrCreate
+        - name: nono-host-dir
+          hostPath:
+            path: {{ .Values.hostPaths.nonoHostDir }}
+            type: DirectoryOrCreate
+        - name: nri-config
+          configMap:
+            name: {{ include "nono-nri.fullname" . }}-config
+        - name: nri-plugins-dir
+          hostPath:
+            path: {{ .Values.hostPaths.nriPlugins }}
+            type: DirectoryOrCreate
+        - name: nono-state
+          emptyDir: {}

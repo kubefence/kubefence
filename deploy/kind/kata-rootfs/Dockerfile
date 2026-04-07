@@ -79,6 +79,23 @@ RUN chmod +x /build/inject.sh && \
     /build/inject.sh /build/kata-ubuntu-noble-confidential.image /build/nono /build/policy.rego
 
 # ── Minimal final image ───────────────────────────────────────────────────────
+# A statically-linked cp from busybox-uclibc is included so this image can
+# be used directly as a Kubernetes init container:
+#
+#   initContainers:
+#     - name: install-kata-rootfs
+#       image: ghcr.io/<org>/kata-rootfs-nono:<version>
+#       args: ["/mnt/kata-share/kata-confidential-nono.image"]
+#       volumeMounts:
+#         - name: kata-share
+#           mountPath: /mnt/kata-share
+#
+# The ENTRYPOINT is "cp /kata-containers-confidential.image"; args supplies
+# the destination. For dev extraction with docker: docker create + docker cp
+# still works unchanged.
+FROM busybox:1.37.0-uclibc AS busybox-static
 FROM scratch
+COPY --from=busybox-static /bin/cp /bin/cp
 COPY --from=builder /build/kata-ubuntu-noble-confidential.image /kata-containers-confidential.image
+ENTRYPOINT ["/bin/cp", "/kata-containers-confidential.image"]
 CMD [""]

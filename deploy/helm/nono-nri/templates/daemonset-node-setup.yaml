@@ -1,0 +1,128 @@
+{{- if .Values.nodeSetup.enabled }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "nono-nri.fullname" . }}-node-setup
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "nono-nri.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-setup
+spec:
+  selector:
+    matchLabels:
+      {{- include "nono-nri.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: node-setup
+  template:
+    metadata:
+      labels:
+        {{- include "nono-nri.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: node-setup
+    spec:
+      automountServiceAccountToken: false
+      # hostPID is required to locate containerd's PID for SIGHUP reload.
+      hostPID: true
+      initContainers:
+
+        # ── Patch containerd config ──────────────────────────────────────────
+        # Idempotently enables the NRI subsystem and registers the nono-runc
+        # runtime handler. Sends SIGHUP to containerd to reload config without
+        # a full restart. Both changes are required for nono-nri to work with
+        # the runc runtime:
+        #   - NRI: lets the plugin connect and receive container lifecycle events
+        #   - nono-runc handler: lets Kubernetes schedule pods with
+        #     runtimeClassName: nono-runc
+        - name: configure-containerd
+          image: alpine:3.20
+          securityContext:
+            privileged: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              CFG="{{ .Values.containerdConfigPath }}"
+
+              if [ ! -f "${CFG}" ]; then
+                echo "containerd config not found at ${CFG} — skipping."
+                exit 0
+              fi
+
+              CHANGED=false
+
+              # ── Enable NRI ─────────────────────────────────────────────────
+              if ! grep -q '"io\.containerd\.nri\.v1\.nri"' "${CFG}"; then
+                cat >> "${CFG}" << 'TOMLEOF'
+
+              [plugins."io.containerd.nri.v1.nri"]
+                disable = false
+                socket_path = "{{ .Values.nodeSetup.nri.socketPath }}"
+                plugin_path = "{{ .Values.nodeSetup.nri.pluginPath }}"
+                plugin_config_path = "{{ .Values.nodeSetup.nri.configPath }}"
+              TOMLEOF
+                echo "NRI enabled in ${CFG}."
+                CHANGED=true
+              elif grep -A5 '"io\.containerd\.nri\.v1\.nri"' "${CFG}" | grep -q 'disable = true'; then
+                # Section exists but disabled — flip the flag.
+                sed -i '/\[plugins\."io\.containerd\.nri\.v1\.nri"\]/,/^\[/{s/disable = true/disable = false/}' "${CFG}"
+                echo "NRI re-enabled in ${CFG}."
+                CHANGED=true
+              else
+                echo "NRI already enabled."
+              fi
+
+              # ── Register nono-runc handler ─────────────────────────────────
+              if ! grep -q 'runtimes\.nono-runc' "${CFG}"; then
+                cat >> "${CFG}" << 'TOMLEOF'
+
+              [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nono-runc]
+                runtime_type = "io.containerd.runc.v2"
+              TOMLEOF
+                echo "nono-runc handler registered in ${CFG}."
+                CHANGED=true
+              else
+                echo "nono-runc already registered."
+              fi
+
+              # ── Reload containerd if anything changed ──────────────────────
+              if [ "${CHANGED}" = "true" ]; then
+                CONTAINERD_PID=$(cat /run/containerd/containerd.pid 2>/dev/null \
+                  || pidof containerd 2>/dev/null || true)
+                if [ -n "${CONTAINERD_PID}" ]; then
+                  kill -HUP "${CONTAINERD_PID}" \
+                    && echo "Sent SIGHUP to containerd (PID ${CONTAINERD_PID})." \
+                    || echo "Warning: SIGHUP failed — manual containerd reload may be needed."
+                else
+                  echo "Warning: containerd PID not found — manual reload required."
+                fi
+              fi
+          volumeMounts:
+            - name: containerd-config-dir
+              mountPath: {{ .Values.containerdConfigPath | dir }}
+            - name: run-containerd
+              mountPath: /run/containerd
+              readOnly: true
+
+      # Long-running container keeps the pod alive for status tracking.
+      containers:
+        - name: node-setup-complete
+          image: busybox:1.37.0-uclibc
+          command: ["/bin/sh", "-c", "echo 'node setup complete'; sleep infinity"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+
+      volumes:
+        - name: containerd-config-dir
+          hostPath:
+            path: {{ .Values.containerdConfigPath | dir }}
+            type: DirectoryOrCreate
+        - name: run-containerd
+          hostPath:
+            path: /run/containerd
+            type: DirectoryOrCreate
+{{- end }}
