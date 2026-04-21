@@ -1,6 +1,7 @@
 package nri
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 
@@ -42,7 +43,9 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
 	var cfg Config
-	if err := toml.Unmarshal(data, &cfg); err != nil {
+	dec := toml.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 	if len(cfg.RuntimeClasses) == 0 {

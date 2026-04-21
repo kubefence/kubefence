@@ -73,14 +73,15 @@ default_profile = "--allow-all"
 		Expect(err.Error()).To(ContainSubstring("default_profile"))
 	})
 
-	It("ignores unknown TOML keys", func() {
+	It("returns error for unknown TOML keys", func() {
 		path := writeTempConfig(`runtime_classes = ["test"]
 nono_bin_path = "/opt/nono/nono"
 default_profile = "default"
 unknown_key = "value"
 `)
 		_, err := nri.LoadConfig(path)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("parsing config"))
 	})
 
 	It("returns error for empty nono_bin_path when bind-mount delivery is used", func() {
