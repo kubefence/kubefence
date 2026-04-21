@@ -48,6 +48,9 @@ func LoadConfig(path string) (*Config, error) {
 	if len(cfg.RuntimeClasses) == 0 {
 		return nil, fmt.Errorf("config: runtime_classes must not be empty")
 	}
+	if !validProfileRe.MatchString(cfg.DefaultProfile) {
+		return nil, fmt.Errorf("config: default_profile %q is invalid: must match ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$", cfg.DefaultProfile)
+	}
 	// nono_bin_path is required for any handler that uses bind-mount delivery.
 	if cfg.NonoBinPath == "" {
 		for _, rc := range cfg.RuntimeClasses {
