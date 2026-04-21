@@ -20,9 +20,6 @@ spec:
         app.kubernetes.io/component: kata-setup
     spec:
       automountServiceAccountToken: false
-      # hostPID is required so the configure-kata init container can locate
-      # and send SIGHUP to the containerd process for config reload.
-      hostPID: true
       initContainers:
 
         # ── 1. Wait for kata-deploy ──────────────────────────────────────────
@@ -141,9 +138,7 @@ spec:
                 echo "Registered kata-nono-qemu in ${CONTAINERD_CFG}."
 
                 # ── Reload containerd config via SIGHUP ──────────────────────
-                # Requires hostPID: true on the pod spec.
-                CONTAINERD_PID=$(cat /run/containerd/containerd.pid 2>/dev/null \
-                  || pidof containerd 2>/dev/null || true)
+                CONTAINERD_PID=$(cat /run/containerd/containerd.pid 2>/dev/null || true)
                 if [ -n "${CONTAINERD_PID}" ]; then
                   kill -HUP "${CONTAINERD_PID}" \
                     && echo "Sent SIGHUP to containerd (PID ${CONTAINERD_PID})." \

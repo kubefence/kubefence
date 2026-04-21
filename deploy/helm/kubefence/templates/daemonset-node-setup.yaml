@@ -20,8 +20,6 @@ spec:
         app.kubernetes.io/component: node-setup
     spec:
       automountServiceAccountToken: false
-      # hostPID is required to locate containerd's PID for SIGHUP reload.
-      hostPID: true
       initContainers:
 
         # ── Patch containerd config ──────────────────────────────────────────
@@ -85,8 +83,7 @@ spec:
 
               # ── Reload containerd if anything changed ──────────────────────
               if [ "${CHANGED}" = "true" ]; then
-                CONTAINERD_PID=$(cat /run/containerd/containerd.pid 2>/dev/null \
-                  || pidof containerd 2>/dev/null || true)
+                CONTAINERD_PID=$(cat /run/containerd/containerd.pid 2>/dev/null || true)
                 if [ -n "${CONTAINERD_PID}" ]; then
                   kill -HUP "${CONTAINERD_PID}" \
                     && echo "Sent SIGHUP to containerd (PID ${CONTAINERD_PID})." \
