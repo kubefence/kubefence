@@ -68,6 +68,12 @@ func (p *Plugin) CreateContainer(
 
 // RemoveContainer is called by the NRI runtime after a container is removed.
 // It cleans up the container's state directory.
+//
+// Cleanup is attempted unconditionally: for non-sandboxed containers WriteMetadata
+// was never called, so RemoveMetadata is a safe no-op (os.RemoveAll on a
+// non-existent path returns nil). The Plugin does not maintain its own set of
+// sandboxed container IDs to stay stateless across plugin restarts.
+//
 // Signature matches stub.RemoveContainerInterface: returns error only (no ContainerUpdate).
 func (p *Plugin) RemoveContainer(
 	ctx context.Context,
@@ -92,6 +98,11 @@ func (p *Plugin) RemoveContainer(
 // responds), so it is reliably delivered to external plugins — unlike
 // RemoveContainer which is a StateChange notification that containerd 2.x does
 // not deliver to external socket-connected plugins.
+//
+// Cleanup is attempted unconditionally for the same reason as RemoveContainer:
+// the Plugin is stateless and RemoveMetadata is safe on non-existent paths.
+// On runtimes that deliver both StopContainer and RemoveContainer, RemoveMetadata
+// is called twice; the second call is a no-op.
 //
 // Signature matches stub.StopContainerInterface: returns ContainerUpdates + error.
 func (p *Plugin) StopContainer(
