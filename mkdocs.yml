@@ -1,5 +1,6 @@
 site_name: kubefence
 site_description: "Kubernetes NRI plugin for transparent Landlock sandboxing with nono"
+site_url: https://kubefence.github.io/kubefence/
 repo_url: https://github.com/kubefence/kubefence
 repo_name: kubefence/kubefence
 
