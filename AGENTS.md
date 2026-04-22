@@ -130,6 +130,12 @@ StateChange. Only direct RPCs are reliable for external plugins.
   is required for NRI SDK compatibility.
 - **Kernel check runs first.** `CheckKernel()` is the very first call in
   `run()`. Do not move it after config load or logger init.
+- **Process wrapping only.** The NRI plugin's scope is strictly limited to
+  wrapping container processes with `nono wrap`. It must not enforce UID/GID
+  constraints, `runAsNonRoot`, `seccompProfile`, capability drops, or any other
+  pod security context properties via `ContainerAdjustment`. Those concerns
+  belong at the admission layer (mutating webhook or Pod Security Standards).
+  The plugin wraps the process regardless of which user the container runs as.
 
 ---
 
