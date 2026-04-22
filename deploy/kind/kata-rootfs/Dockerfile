@@ -33,6 +33,10 @@ FROM ubuntu:24.04 AS builder
 
 ARG KATA_VERSION
 ARG NONO_VERSION
+# SHA256 of nono-${NONO_VERSION}-x86_64-unknown-linux-gnu.tar.gz.
+# Obtain with: sha256sum nono-<ver>-x86_64-unknown-linux-gnu.tar.gz
+# Must be updated whenever NONO_VERSION changes.
+ARG NONO_SHA256
 
 RUN test -n "$KATA_VERSION" || { echo "KATA_VERSION build-arg is required"; exit 1; }
 RUN test -n "$NONO_VERSION" || { echo "NONO_VERSION build-arg is required"; exit 1; }
@@ -46,10 +50,13 @@ WORKDIR /build
 
 # ── Download nono binary from release ────────────────────────────────────────
 # glibc build matches the confidential guest rootfs (musl not required).
+# NONO_SHA256 must be supplied at build time to verify the tarball integrity.
+RUN test -n "$NONO_SHA256" || { echo "NONO_SHA256 build-arg is required"; exit 1; }
 RUN TARBALL="nono-${NONO_VERSION}-x86_64-unknown-linux-gnu.tar.gz" && \
     curl -fsSL \
       "https://github.com/always-further/nono/releases/download/${NONO_VERSION}/${TARBALL}" \
       -o /tmp/nono.tar.gz && \
+    echo "${NONO_SHA256}  /tmp/nono.tar.gz" | sha256sum -c - && \
     tar xzf /tmp/nono.tar.gz -C /tmp/ && \
     NONO_BIN=$(find /tmp -maxdepth 3 -name nono -type f | head -1) && \
     test -n "$NONO_BIN" || { echo "nono binary not found in tarball"; exit 1; } && \

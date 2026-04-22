@@ -116,7 +116,8 @@ kubectl delete pod nono-e2e-sandboxed nono-e2e-plain debug-sandboxed \
 # ── Test 1: Plugin connectivity ───────────────────────────────────────────────
 echo "── Test 1: Plugin connectivity ──────────────────────────────────────────"
 
-PLUGIN_POD=$(kubectl get pod -n kube-system -l app=nono-nri \
+PLUGIN_POD=$(kubectl get pod -n kube-system \
+  -l 'app.kubernetes.io/name=kubefence,!app.kubernetes.io/component' \
   -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 require "plugin DaemonSet pod exists" test -n "$PLUGIN_POD"
 

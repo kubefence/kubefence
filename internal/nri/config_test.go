@@ -53,17 +53,40 @@ socket_path = "/var/run/nri/nri.sock"
 		Expect(err.Error()).To(ContainSubstring("runtime_classes must not be empty"))
 	})
 
-	It("ignores unknown TOML keys", func() {
+	It("returns error for empty default_profile", func() {
+		path := writeTempConfig(`runtime_classes = ["nono-runc"]
+nono_bin_path = "/opt/nono/nono"
+default_profile = ""
+`)
+		_, err := nri.LoadConfig(path)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("default_profile"))
+	})
+
+	It("returns error for default_profile that looks like a CLI flag", func() {
+		path := writeTempConfig(`runtime_classes = ["nono-runc"]
+nono_bin_path = "/opt/nono/nono"
+default_profile = "--allow-all"
+`)
+		_, err := nri.LoadConfig(path)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("default_profile"))
+	})
+
+	It("returns error for unknown TOML keys", func() {
 		path := writeTempConfig(`runtime_classes = ["test"]
 nono_bin_path = "/opt/nono/nono"
+default_profile = "default"
 unknown_key = "value"
 `)
 		_, err := nri.LoadConfig(path)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("parsing config"))
 	})
 
 	It("returns error for empty nono_bin_path when bind-mount delivery is used", func() {
 		path := writeTempConfig(`runtime_classes = ["nono-runc"]
+default_profile = "default"
 nono_bin_path = ""
 `)
 		_, err := nri.LoadConfig(path)
@@ -73,14 +96,26 @@ nono_bin_path = ""
 
 	It("returns error for missing nono_bin_path when bind-mount delivery is used", func() {
 		path := writeTempConfig(`runtime_classes = ["nono-runc"]
+default_profile = "default"
 `)
 		_, err := nri.LoadConfig(path)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("nono_bin_path must not be empty"))
 	})
 
+	It("returns error for relative nono_bin_path", func() {
+		path := writeTempConfig(`runtime_classes = ["nono-runc"]
+default_profile = "default"
+nono_bin_path = "relative/path/nono"
+`)
+		_, err := nri.LoadConfig(path)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("must be an absolute path"))
+	})
+
 	It("allows missing nono_bin_path when all handlers are in vm_rootfs_classes", func() {
 		path := writeTempConfig(`runtime_classes = ["kata-nono-qemu"]
+default_profile = "default"
 vm_rootfs_classes = ["kata-nono-qemu"]
 `)
 		cfg, err := nri.LoadConfig(path)
@@ -91,6 +126,7 @@ vm_rootfs_classes = ["kata-nono-qemu"]
 
 	It("returns error for missing nono_bin_path when some handlers use bind-mount", func() {
 		path := writeTempConfig(`runtime_classes = ["nono-runc", "kata-nono-qemu"]
+default_profile = "default"
 vm_rootfs_classes = ["kata-nono-qemu"]
 `)
 		_, err := nri.LoadConfig(path)

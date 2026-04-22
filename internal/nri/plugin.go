@@ -35,7 +35,6 @@ func (p *Plugin) CreateContainer(
 	namespace := pod.GetNamespace()
 	podName := pod.GetName()
 	ctrID := ctr.GetId()
-	profile := ResolveProfile(pod, p.Config)
 
 	if !ShouldSandbox(pod, p.Config) {
 		p.Log.Info("skip",
@@ -44,11 +43,13 @@ func (p *Plugin) CreateContainer(
 			"container_id", ctrID,
 			"namespace", namespace,
 			"pod", podName,
-			"profile", profile,
+			"profile", "", // not sandboxed; no profile is applied
 			"runtime_handler", handler,
 		)
 		return nil, nil, nil
 	}
+
+	profile := ResolveProfile(pod, p.Config)
 
 	adj := BuildAdjustment(ctr, profile, p.Config.NonoBinPath, p.Config.IsVMRootfsClass(handler))
 	if err := WriteMetadata(pod.GetUid(), ctrID, podName, namespace, profile); err != nil {
@@ -67,6 +68,12 @@ func (p *Plugin) CreateContainer(
 
 // RemoveContainer is called by the NRI runtime after a container is removed.
 // It cleans up the container's state directory.
+//
+// Cleanup is attempted unconditionally: for non-sandboxed containers WriteMetadata
+// was never called, so RemoveMetadata is a safe no-op (os.RemoveAll on a
+// non-existent path returns nil). The Plugin does not maintain its own set of
+// sandboxed container IDs to stay stateless across plugin restarts.
+//
 // Signature matches stub.RemoveContainerInterface: returns error only (no ContainerUpdate).
 func (p *Plugin) RemoveContainer(
 	ctx context.Context,
@@ -91,6 +98,11 @@ func (p *Plugin) RemoveContainer(
 // responds), so it is reliably delivered to external plugins — unlike
 // RemoveContainer which is a StateChange notification that containerd 2.x does
 // not deliver to external socket-connected plugins.
+//
+// Cleanup is attempted unconditionally for the same reason as RemoveContainer:
+// the Plugin is stateless and RemoveMetadata is safe on non-existent paths.
+// On runtimes that deliver both StopContainer and RemoveContainer, RemoveMetadata
+// is called twice; the second call is a no-op.
 //
 // Signature matches stub.StopContainerInterface: returns ContainerUpdates + error.
 func (p *Plugin) StopContainer(

@@ -1,8 +1,10 @@
 package nri
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -42,11 +44,16 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
 	var cfg Config
-	if err := toml.Unmarshal(data, &cfg); err != nil {
+	dec := toml.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 	if len(cfg.RuntimeClasses) == 0 {
 		return nil, fmt.Errorf("config: runtime_classes must not be empty")
+	}
+	if !validProfileRe.MatchString(cfg.DefaultProfile) {
+		return nil, fmt.Errorf("config: default_profile %q is invalid: must match ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$", cfg.DefaultProfile)
 	}
 	// nono_bin_path is required for any handler that uses bind-mount delivery.
 	if cfg.NonoBinPath == "" {
@@ -55,6 +62,11 @@ func LoadConfig(path string) (*Config, error) {
 				return nil, fmt.Errorf("config: nono_bin_path must not be empty when bind-mount delivery is used (handler %q is not in vm_rootfs_classes)", rc)
 			}
 		}
+	}
+	// A relative NonoBinPath causes filepath.Dir to return "." which silently
+	// becomes the bind-mount source, mounting the plugin's cwd into containers.
+	if cfg.NonoBinPath != "" && !filepath.IsAbs(cfg.NonoBinPath) {
+		return nil, fmt.Errorf("config: nono_bin_path %q must be an absolute path", cfg.NonoBinPath)
 	}
 	return &cfg, nil
 }

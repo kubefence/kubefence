@@ -50,14 +50,17 @@ func defaultKernelVersion() (major, minor int) {
 	if len(parts) < 2 {
 		return 0, 0
 	}
-	major, _ = strconv.Atoi(parts[0])
-	// Strip trailing non-digit suffix (e.g. "-generic", "-rc1", "+") from minor
-	// by finding the first non-digit character rather than using TrimRight with
-	// a character set (which would silently accept unexpected suffixes).
-	minorRaw := parts[1]
-	if idx := strings.IndexFunc(minorRaw, func(r rune) bool { return r < '0' || r > '9' }); idx >= 0 {
-		minorRaw = minorRaw[:idx]
+	// Strip trailing non-digit suffix from both major and minor components
+	// (e.g. "6+" or "13-rc1") using the same approach for consistency.
+	// A parse failure leaves the component at 0, which causes CheckKernel to
+	// return an error — the safe-by-default behaviour.
+	stripNonDigit := func(s string) string {
+		if idx := strings.IndexFunc(s, func(r rune) bool { return r < '0' || r > '9' }); idx >= 0 {
+			return s[:idx]
+		}
+		return s
 	}
-	minor, _ = strconv.Atoi(minorRaw)
+	major, _ = strconv.Atoi(stripNonDigit(parts[0]))
+	minor, _ = strconv.Atoi(stripNonDigit(parts[1]))
 	return
 }

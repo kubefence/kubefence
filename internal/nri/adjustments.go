@@ -64,11 +64,17 @@ func BuildAdjustment(ctr *api.Container, profile, hostBinPath string, vmRootfs b
 
 	// NONO_PROFILE lets wrapper scripts apply the right profile for execs
 	// that are intercepted after PID 1 (kubectl exec, child processes).
+	// RemoveEnv strips any value the container spec may have pre-set so our
+	// value is authoritative regardless of NRI env-merge ordering.
+	adj.RemoveEnv("NONO_PROFILE")
 	adj.AddEnv("NONO_PROFILE", profile)
 
 	// Prepend /nono to PATH so wrapper scripts shadow real interpreter binaries.
 	// We read the container's existing PATH from its OCI process env and
 	// prepend /nono; if no PATH is set we fall back to the distribution default.
+	// RemoveEnv ensures no duplicate PATH survives that could shadow our value.
+	// OCI env entries must be in KEY=VALUE form per the runtime spec; malformed
+	// entries without '=' are not matched and are left for the runtime to handle.
 	existingPATH := defaultContainerPATH
 	for _, entry := range ctr.GetEnv() {
 		if strings.HasPrefix(entry, "PATH=") {
@@ -76,6 +82,7 @@ func BuildAdjustment(ctr *api.Container, profile, hostBinPath string, vmRootfs b
 			break
 		}
 	}
+	adj.RemoveEnv("PATH")
 	adj.AddEnv("PATH", containerNonoDirPath+":"+existingPATH)
 
 	return adj

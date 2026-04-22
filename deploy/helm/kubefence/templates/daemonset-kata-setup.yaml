@@ -20,16 +20,13 @@ spec:
         app.kubernetes.io/component: kata-setup
     spec:
       automountServiceAccountToken: false
-      # hostPID is required so the configure-kata init container can locate
-      # and send SIGHUP to the containerd process for config reload.
-      hostPID: true
       initContainers:
 
         # ── 1. Wait for kata-deploy ──────────────────────────────────────────
         # kata-deploy must install its binaries and write the QEMU config file
         # before we patch it.  Poll until the file appears.
         - name: wait-for-kata
-          image: busybox:1.37.0-uclibc
+          image: {{ .Values.helperImages.busybox | quote }}
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -89,7 +86,7 @@ spec:
         # Privileged so it can write to host-owned kata config files and send
         # SIGHUP to containerd for config reload without a full restart.
         - name: configure-kata
-          image: alpine:3.20
+          image: {{ .Values.helperImages.alpine | quote }}
           securityContext:
             privileged: true
           command: ["/bin/sh", "-c"]
@@ -141,9 +138,7 @@ spec:
                 echo "Registered kata-nono-qemu in ${CONTAINERD_CFG}."
 
                 # ── Reload containerd config via SIGHUP ──────────────────────
-                # Requires hostPID: true on the pod spec.
-                CONTAINERD_PID=$(cat /run/containerd/containerd.pid 2>/dev/null \
-                  || pidof containerd 2>/dev/null || true)
+                CONTAINERD_PID=$(cat /run/containerd/containerd.pid 2>/dev/null || true)
                 if [ -n "${CONTAINERD_PID}" ]; then
                   kill -HUP "${CONTAINERD_PID}" \
                     && echo "Sent SIGHUP to containerd (PID ${CONTAINERD_PID})." \
@@ -167,7 +162,7 @@ spec:
       # reflects node readiness and kubectl can inspect logs.
       containers:
         - name: kata-setup-complete
-          image: busybox:1.37.0-uclibc
+          image: {{ .Values.helperImages.busybox | quote }}
           command: ["/bin/sh", "-c", "echo 'kata node setup complete'; sleep infinity"]
           securityContext:
             allowPrivilegeEscalation: false

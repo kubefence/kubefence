@@ -56,9 +56,12 @@ NRI event
        │    false → Log "skip" + return nil, nil, nil   (no adjustment, no state)
        │    true  ↓
        ├─ ResolveProfile(pod, cfg)         pod annotation "nono.sh/profile" or cfg.DefaultProfile
-       ├─ BuildAdjustment(ctr, profile, cfg.NonoBinPath)
+       ├─ BuildAdjustment(ctr, profile, cfg.NonoBinPath, isVMRootfs)
        │    SetArgs: [/nono/nono, wrap, --profile, <profile>, --, <original args...>]
        │    AddMount: host dir of NonoBinPath → /nono  (bind, ro, rprivate)
+       │    NOTE: isVMRootfs is currently a no-op — the bind-mount is always
+       │    added regardless of vm_rootfs_classes membership (reserved for
+       │    future use; for Kata the mount works via virtiofs either way)
        ├─ WriteMetadata(pod.UID, ctr.ID, …)
        │    creates /var/run/nono-nri/<podUID>/<ctrID>/metadata.json
        └─ Log "injected" + return adjustment
@@ -127,6 +130,12 @@ StateChange. Only direct RPCs are reliable for external plugins.
   is required for NRI SDK compatibility.
 - **Kernel check runs first.** `CheckKernel()` is the very first call in
   `run()`. Do not move it after config load or logger init.
+- **Process wrapping only.** The NRI plugin's scope is strictly limited to
+  wrapping container processes with `nono wrap`. It must not enforce UID/GID
+  constraints, `runAsNonRoot`, `seccompProfile`, capability drops, or any other
+  pod security context properties via `ContainerAdjustment`. Those concerns
+  belong at the admission layer (mutating webhook or Pod Security Standards).
+  The plugin wraps the process regardless of which user the container runs as.
 
 ---
 
@@ -143,6 +152,45 @@ socket_path     = ""               # empty → NRI default /var/run/nri/nri.sock
 
 `runtime_classes` and `nono_bin_path` are required; startup fails without them.
 Unknown TOML keys are silently ignored (go-toml/v2 default, intentional).
+
+---
+
+## nono profile compatibility
+
+nono-nri injects `nono wrap --profile <name> --` via `SetArgs`. This means only
+profiles that are compatible with `nono wrap` will work; profiles that activate
+proxy network mode require `nono run` (a different binary subcommand) and cannot
+be used with nono-nri in its current form.
+
+**Verified working** (tested against `nono-runc` and `kata-nono-sandbox`, nono v0.23.0):
+
+| Profile | Notes |
+|---|---|
+| `default` | Base system profile; suitable as `default_profile` |
+| `claude-code` | Claude Code agent profile |
+| `codex` | OpenAI Codex agent profile |
+| `opencode` | Open-source code agent profile |
+| `swival` | Python/Node.js dev agent profile |
+
+**Incompatible with `nono wrap`** — these profiles enable proxy network mode:
+
+| Profile | Failure | Workaround |
+|---|---|---|
+| `python-dev` | `nono wrap does not support proxy mode` | requires `nono run` |
+| `node-dev` | same | same |
+| `go-dev` | same | same |
+| `rust-dev` | same | same |
+
+**Conditionally broken:**
+
+| Profile | Failure | Condition |
+|---|---|---|
+| `openclaw` | Landlock deny-overlap: profile denies `/root/.local/share/keyrings` while allowing parent `/root/.local` | container runs as root (`$HOME=/root`) |
+
+Profile availability and behaviour vary by nono version. The table above was
+validated against nono v0.23.0; v0.39.0 was available at that time and may
+resolve some of these constraints. Re-run profile verification after upgrading
+the nono binary.
 
 ---
 

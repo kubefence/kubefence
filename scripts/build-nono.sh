@@ -20,6 +20,9 @@
 set -euo pipefail
 
 NONO_VERSION="${NONO_VERSION:-v0.23.0}"
+# Expected commit SHA for NONO_VERSION — prevents mutable tag substitution.
+# Update this when bumping NONO_VERSION.  Leave empty only for local dev.
+NONO_COMMIT="${NONO_COMMIT:-}"
 NONO_REPO="${NONO_REPO:-https://github.com/always-further/nono.git}"
 BUILD_TARGET="${BUILD_TARGET:-glibc}"   # "glibc" | "musl"
 OUT="${OUT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/nono}"
@@ -29,8 +32,17 @@ cleanup() { rm -rf "$BUILD_DIR"; }
 trap cleanup EXIT
 
 echo "==> Cloning nono @ ${NONO_VERSION}..."
-git clone --depth 1 --branch "${NONO_VERSION}" "$NONO_REPO" "$BUILD_DIR/src" 2>/dev/null \
-  || git clone --depth 1 "$NONO_REPO" "$BUILD_DIR/src"
+git clone --depth 1 --branch "${NONO_VERSION}" "$NONO_REPO" "$BUILD_DIR/src"
+
+if [[ -n "$NONO_COMMIT" ]]; then
+  ACTUAL_COMMIT=$(git -C "$BUILD_DIR/src" rev-parse HEAD)
+  if [[ "$ACTUAL_COMMIT" != "$NONO_COMMIT" ]]; then
+    echo "ERROR: nono commit mismatch: tag ${NONO_VERSION} resolves to ${ACTUAL_COMMIT} but expected ${NONO_COMMIT}" >&2
+    echo "       The tag may have been force-pushed. Verify the repository and update NONO_COMMIT." >&2
+    exit 1
+  fi
+  echo "==> Commit verified: ${ACTUAL_COMMIT}"
+fi
 
 echo "==> Patching: disable dbus (sync-secret-service) → no-op keyring backend..."
 # The sync-secret-service feature requires libdbus-1 at runtime, which breaks

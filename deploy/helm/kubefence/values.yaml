@@ -41,8 +41,25 @@ runtimeClasses:
 tolerations:
   - operator: Exists
 
-# Resource requests/limits (empty by default)
-resources: {}
+# Resource requests/limits for the nono-nri plugin container.
+# Limits prevent a burst of container-creation events from exhausting
+# node memory and triggering an OOM kill, which would leave a window
+# where new containers start without nono injection.
+resources:
+  requests:
+    cpu: 50m
+    memory: 32Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+# Helper images used by privileged init containers in nodeSetup and kata DaemonSets.
+# Pin to immutable digests in production to prevent registry compromise from
+# delivering malicious code into privileged host-patching containers.
+# Example: alpine:3.20@sha256:<digest>
+helperImages:
+  alpine: alpine:3.20
+  busybox: busybox:1.37.0-uclibc
 
 # Host path to containerd's configuration file.
 # Shared by the nodeSetup and kata DaemonSets for config patching.
@@ -77,11 +94,13 @@ nodeSetup:
 kata:
   enabled: false
 
-  # OCI image carrying /vmlinux — built by .github/workflows/kata-kernel.yaml
-  kernelImage: ghcr.io/kubefence/kata-kernel-landlock:latest
+  # OCI image carrying /vmlinux — built by .github/workflows/kata-kernel.yaml.
+  # Pin to an immutable digest in production: ghcr.io/kubefence/kata-kernel-landlock:3.28.0@sha256:<digest>
+  kernelImage: ghcr.io/kubefence/kata-kernel-landlock:3.28.0
 
-  # OCI image carrying /kata-containers-confidential.image — built by kata-rootfs.yaml
-  rootfsImage: ghcr.io/kubefence/kata-rootfs-nono:latest
+  # OCI image carrying /kata-containers-confidential.image — built by kata-rootfs.yaml.
+  # Pin to an immutable digest in production: ghcr.io/kubefence/kata-rootfs-nono:3.28.0-v0.23.0@sha256:<digest>
+  rootfsImage: ghcr.io/kubefence/kata-rootfs-nono:3.28.0-v0.23.0
 
   # Directory where kata-deploy installs kata share files on each node.
   shareDir: /opt/kata/share/kata-containers

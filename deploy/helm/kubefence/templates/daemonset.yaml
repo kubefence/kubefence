@@ -26,6 +26,7 @@ spec:
             - /bin/sh
             - -c
             - |
+              chmod 0700 /opt/nono-nri
               cp /usr/local/bin/nono /opt/nono-nri/nono
               chmod 0755 /opt/nono-nri/nono
               # Generate wrapper scripts for common interpreters.
@@ -107,4 +108,6 @@ spec:
             path: {{ .Values.hostPaths.nriPlugins }}
             type: DirectoryOrCreate
         - name: nono-state
-          emptyDir: {}
+          hostPath:
+            path: /var/run/nono-nri
+            type: DirectoryOrCreate

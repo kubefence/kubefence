@@ -20,8 +20,6 @@ spec:
         app.kubernetes.io/component: node-setup
     spec:
       automountServiceAccountToken: false
-      # hostPID is required to locate containerd's PID for SIGHUP reload.
-      hostPID: true
       initContainers:
 
         # ── Patch containerd config ──────────────────────────────────────────
@@ -33,7 +31,7 @@ spec:
         #   - nono-runc handler: lets Kubernetes schedule pods with
         #     runtimeClassName: nono-runc
         - name: configure-containerd
-          image: alpine:3.20
+          image: {{ .Values.helperImages.alpine | quote }}
           securityContext:
             privileged: true
           command: ["/bin/sh", "-c"]
@@ -85,8 +83,7 @@ spec:
 
               # ── Reload containerd if anything changed ──────────────────────
               if [ "${CHANGED}" = "true" ]; then
-                CONTAINERD_PID=$(cat /run/containerd/containerd.pid 2>/dev/null \
-                  || pidof containerd 2>/dev/null || true)
+                CONTAINERD_PID=$(cat /run/containerd/containerd.pid 2>/dev/null || true)
                 if [ -n "${CONTAINERD_PID}" ]; then
                   kill -HUP "${CONTAINERD_PID}" \
                     && echo "Sent SIGHUP to containerd (PID ${CONTAINERD_PID})." \
@@ -105,7 +102,7 @@ spec:
       # Long-running container keeps the pod alive for status tracking.
       containers:
         - name: node-setup-complete
-          image: busybox:1.37.0-uclibc
+          image: {{ .Values.helperImages.busybox | quote }}
           command: ["/bin/sh", "-c", "echo 'node setup complete'; sleep infinity"]
           securityContext:
             allowPrivilegeEscalation: false

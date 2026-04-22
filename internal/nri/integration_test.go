@@ -122,6 +122,46 @@ var _ = Describe("Integration", func() {
 		})
 	})
 
+	Context("StopContainer then RemoveContainer (double-cleanup)", func() {
+		It("leaves clean state and never errors when both events fire for one container", func() {
+			// Production sequence on runtimes that deliver both events:
+			// CreateContainer → StopContainer (primary, reliable) → RemoveContainer (belt-and-suspenders).
+			// RemoveMetadata is called twice; the second call must be a no-op.
+			buf := &bytes.Buffer{}
+			p := newTestPlugin(buf)
+
+			pod := &api.PodSandbox{
+				RuntimeHandler: "nono-runc",
+				Namespace:      "default",
+				Name:           "double-cleanup-pod",
+				Uid:            "pod-uid-double",
+				Annotations:    map[string]string{},
+			}
+			ctr := &api.Container{Id: "ctr-double-1"}
+
+			// Create — state directory is written
+			adj, _, err := p.CreateContainer(context.Background(), pod, ctr)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(adj).NotTo(BeNil())
+
+			stateDir := filepath.Join(tmpDir, "pod-uid-double", "ctr-double-1")
+			_, statErr := os.Stat(stateDir)
+			Expect(statErr).NotTo(HaveOccurred())
+
+			// Stop — primary cleanup; state directory removed
+			_, err = p.StopContainer(context.Background(), pod, ctr)
+			Expect(err).NotTo(HaveOccurred())
+			_, statErr = os.Stat(stateDir)
+			Expect(os.IsNotExist(statErr)).To(BeTrue())
+
+			// Remove — second cleanup; path is already gone, must be a no-op
+			err = p.RemoveContainer(context.Background(), pod, ctr)
+			Expect(err).NotTo(HaveOccurred())
+			_, statErr = os.Stat(stateDir)
+			Expect(os.IsNotExist(statErr)).To(BeTrue())
+		})
+	})
+
 	Context("RemoveContainer cleans up state dir", func() {
 		It("removes state directory after CreateContainer wrote it", func() {
 			buf := &bytes.Buffer{}

@@ -27,11 +27,16 @@ ARG KATA_VERSION
 RUN test -n "$KATA_VERSION" || { echo "KATA_VERSION build-arg is required"; exit 1; }
 
 # ── Build prerequisites ───────────────────────────────────────────────────────
+# yq is pinned to a specific version and SHA256-verified to prevent a mutable
+# "latest" URL from delivering a compromised binary into the kernel build.
+ENV YQ_VERSION=v4.44.3 \
+    YQ_SHA256=a2c097180dd884a8d50c956ee16a9cec070f30a7947cf4ebf87d5f36213e9ed7
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential flex bison libssl-dev libelf-dev bc dwarves \
         libncurses-dev rsync cpio curl git wget ca-certificates \
     && wget -qO /usr/local/bin/yq \
-        https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
+        "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" \
+    && echo "${YQ_SHA256}  /usr/local/bin/yq" | sha256sum -c - \
     && chmod +x /usr/local/bin/yq \
     && rm -rf /var/lib/apt/lists/*
 

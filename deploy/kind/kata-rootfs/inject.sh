@@ -11,6 +11,17 @@ IMAGE="$1"
 NONO="$2"
 POLICY="${3:-}"
 
+# Validate that paths contain no whitespace. debugfs reads its command
+# arguments as unquoted tokens in a heredoc; a path with spaces would
+# silently split into multiple arguments, injecting the wrong file and
+# leaving the rootfs with a corrupt or missing /nono/nono.
+for _var in "$IMAGE" "$NONO" ${POLICY:+"$POLICY"}; do
+  if [[ "$_var" =~ [[:space:]] ]]; then
+    echo "ERROR: path must not contain whitespace: ${_var}" >&2
+    exit 1
+  fi
+done
+
 # Detect partition geometry dynamically — works for any MBR/GPT disk image
 # without root or loop mounts. sfdisk is in the `fdisk` apt package.
 echo "==> Detecting partition geometry..."
