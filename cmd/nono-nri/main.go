@@ -42,9 +42,16 @@ func run() error {
 	}
 
 	if cfg.NonoBinPath != "" {
-		info, err := os.Stat(cfg.NonoBinPath)
+		// Use Lstat (not Stat) so a symlink at NonoBinPath is detected rather
+		// than silently followed. A symlink would pass the IsRegular check
+		// against its target but could be repointed after startup, causing
+		// unintended content to be bind-mounted into sandboxed containers.
+		info, err := os.Lstat(cfg.NonoBinPath)
 		if err != nil {
 			return fmt.Errorf("nono binary not found at %s: %w", cfg.NonoBinPath, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("nono binary at %s is a symlink: only regular files are accepted", cfg.NonoBinPath)
 		}
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("nono binary at %s is not a regular file", cfg.NonoBinPath)
