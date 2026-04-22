@@ -73,6 +73,8 @@ func BuildAdjustment(ctr *api.Container, profile, hostBinPath string, vmRootfs b
 	// We read the container's existing PATH from its OCI process env and
 	// prepend /nono; if no PATH is set we fall back to the distribution default.
 	// RemoveEnv ensures no duplicate PATH survives that could shadow our value.
+	// OCI env entries must be in KEY=VALUE form per the runtime spec; malformed
+	// entries without '=' are not matched and are left for the runtime to handle.
 	existingPATH := defaultContainerPATH
 	for _, entry := range ctr.GetEnv() {
 		if strings.HasPrefix(entry, "PATH=") {
