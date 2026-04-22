@@ -33,12 +33,16 @@ and the worker node.
 4. The container starts — nono applies the Landlock sandbox and `exec()`s into the original command
 5. The container process runs sandboxed under kernel enforcement; nono has replaced itself as PID 1
 
-```
-Pod spec: command: ["myapp", "--flag"]
-                    | NRI plugin
-OCI spec: args:   ["/nono/nono", "wrap", "--profile", "default", "--", "myapp", "--flag"]
-                    | container start (inside Kata VM)
-PID 1:    /usr/bin/myapp --flag   (nono exec'd the app; kubectl exec blocked by OPA)
+```mermaid
+flowchart TD
+    A["Pod spec<br/>command: myapp --flag"]
+    B["OCI spec<br/>args: /nono/nono wrap --profile default -- myapp --flag"]
+    C["Container starts inside Kata VM<br/>nono applies Landlock restrictions"]
+    D["PID 1: myapp --flag<br/>Running under Landlock confinement<br/>kubectl exec blocked by kata-agent OPA"]
+
+    A -->|"NRI plugin rewrites args"| B
+    B -->|"runtime starts container"| C
+    C -->|"nono exec()s into original command"| D
 ```
 
 ## Container images

@@ -25,7 +25,6 @@ These values are rendered into the TOML config file loaded by the plugin.
 | `config.defaultProfile` | `"default"` | nono profile used when a pod has no `nono.sh/profile` annotation |
 | `config.nonoBinPath` | `"/opt/nono-nri/nono"` | Absolute host path to the nono binary. Copied there by the node-setup DaemonSet init container |
 | `config.socketPath` | `""` | NRI socket path. Empty string uses the runtime default (`/var/run/nri/nri.sock`) |
-| `config.vmRootfsClasses` | `[]` | RuntimeClass handlers that have nono embedded in the Kata guest rootfs. Bind-mount is skipped for these handlers |
 
 ### RuntimeClass creation
 

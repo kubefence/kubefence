@@ -31,14 +31,6 @@ a custom Landlock-enabled kernel on each node. The custom kernel image
 published to GHCR. The kata-setup DaemonSet replaces the default vmlinux with
 the Landlock-enabled version without touching the kata initrd.
 
-## containerd is the tested path
-
-kubefence is developed and tested against containerd 2.2.0+. CRI-O 1.35+
-supports the required NRI `AdjustArgs` API and should work, but is not
-regularly tested in the project's CI. If you encounter issues with CRI-O,
-check that NRI is enabled in the CRI-O configuration and that the version
-supports `AdjustArgs`.
-
 ## /nono directory must not exist in container images
 
 The nono binary is bind-mounted by creating a directory mount at `/nono` inside
@@ -59,9 +51,7 @@ etc.) that are spawned without a full path. This covers most dynamic exec
 scenarios.
 
 However, processes that exec a binary using its **full absolute path** (e.g.
-`exec("/usr/bin/python3", ...)`) bypass the PATH-based wrapper. In these cases
-nono is not re-invoked for the child process, but Landlock restrictions are
-**inherited** across `exec` — the child process is still filesystem-confined.
+`exec("/usr/bin/python3", ...)`) bypass the PATH-based wrapper.
 
 For Kata pods, this is not a concern: `kubectl exec` is blocked entirely at the
 hypervisor by the kata-agent OPA policy, preventing any new process from being

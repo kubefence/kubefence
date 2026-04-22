@@ -17,6 +17,12 @@ and recommended path.
 
 ## Kata Containers path
 
+!!! tip "Default and preferred for untrusted workloads"
+    Kata Containers is the recommended deployment model for kubefence. It
+    combines VM-level pod isolation with Landlock filesystem confinement and
+    hypervisor-enforced `kubectl exec` blocking — closing most lateral-movement
+    paths. Use the runc path only when KVM is not available.
+
 Kata adds a second enforcement layer: each pod runs inside a QEMU/KVM
 micro-VM, and `kubectl exec` is blocked at the hypervisor by the kata-agent
 OPA policy. The nono Landlock sandbox runs inside the VM.
@@ -52,7 +58,6 @@ helm upgrade --install kubefence \
   --set runtimeClasses.kataNono.enabled=true \
   --set runtimeClasses.kataNono.handler=kata-nono-qemu \
   --set "config.runtimeClasses={nono-runc,kata-qemu,kata-nono-qemu}" \
-  --set "config.vmRootfsClasses={kata-nono-qemu}" \
   --wait
 ```
 

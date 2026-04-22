@@ -72,29 +72,14 @@ For running AI agents or other untrusted code, Kata is strongly recommended
 because the combination of VM isolation, Landlock filesystem confinement, and
 `kubectl exec` blocking closes most lateral-movement paths.
 
-## Delivery modes
+## Delivery mode
 
-The nono binary must be available inside the container. kubefence supports two
-delivery mechanisms:
-
-**Bind-mount (default)**
-
-The nono binary is copied from the container image to the host by a DaemonSet
-init container. When a sandboxed container starts, kubefence bind-mounts the
-host directory (`/opt/nono-nri`) into the container at `/nono`. For Kata pods,
-virtiofsd exposes the host directory to the QEMU VM guest transparently — the
-same bind-mount mechanism works without modification.
-
-**Embedded rootfs (Kata only)**
-
-For the `kata-nono-qemu` handler, nono is baked into the Kata guest rootfs
-image (`ghcr.io/kubefence/kata-rootfs-nono`). The rootfs image is installed
-on each node by the kata-setup DaemonSet. In this mode the bind-mount is
-skipped — nono is already present in the guest at `/nono/nono`.
-
-Which mode is active depends on whether the RuntimeClass handler is listed in
-`config.vmRootfsClasses` in the Helm values. Handlers in that list use the
-embedded rootfs; all others use the bind-mount.
+The nono binary must be available inside the container. kubefence uses
+bind-mount delivery: the nono binary is copied from the plugin container image
+to the host by a DaemonSet init container. When a sandboxed container starts,
+kubefence bind-mounts the host directory (`/opt/nono-nri`) into the container
+at `/nono`. For Kata pods, virtiofsd exposes the host directory to the QEMU VM
+guest transparently — the same bind-mount mechanism works without modification.
 
 ## DaemonSet architecture
 

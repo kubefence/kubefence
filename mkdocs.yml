@@ -1,5 +1,6 @@
 site_name: kubefence
 site_description: "Kubernetes NRI plugin for transparent Landlock sandboxing with nono"
+site_url: https://kubefence.github.io/kubefence/
 repo_url: https://github.com/kubefence/kubefence
 repo_name: kubefence/kubefence
 
@@ -29,7 +30,11 @@ markdown_extensions:
   - admonition
   - pymdownx.highlight:
       anchor_linenums: true
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.details
