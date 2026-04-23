@@ -120,3 +120,13 @@ kata:
     # Leave empty for bare-metal nodes.
     # Set to "kernel_irqchip=split" for nested-KVM environments (e.g. Kind).
     machineAccelerators: ""
+    # seccompSandbox restricts the syscalls available to the QEMU process on
+    # the host. If a guest VM escape occurs, the attacker can only use this
+    # restricted syscall set. spawn=deny is the most critical flag: it prevents
+    # QEMU from exec'ing host binaries after a hypothetical escape.
+    # Set to "" to disable (not recommended for production).
+    seccompSandbox: "on,obsolete=deny,spawn=deny,resourcecontrol=deny"
+    # disableGuestSeccomp maps to disable_guest_seccomp in the kata QEMU config.
+    # false = kata-agent applies the container's OCI seccomp profile inside the VM.
+    # Must be false for the NRI-injected seccomp_profile to take effect in Kata VMs.
+    disableGuestSeccomp: false

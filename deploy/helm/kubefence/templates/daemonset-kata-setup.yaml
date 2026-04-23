@@ -118,6 +118,31 @@ spec:
               sed -i "s|^image = .*|image = \"${NONO_ROOTFS}\"|" "${KATA_CFG_NONO}"
               echo "Created ${KATA_CFG_NONO} (rootfs → ${NONO_ROOTFS})."
 
+              {{- if .Values.kata.qemu.seccompSandbox }}
+              # ── Apply QEMU process-level seccomp sandbox ──────────────────
+              # Restricts syscalls the QEMU process can make on the host.
+              # spawn=deny prevents QEMU from exec'ing host binaries after a
+              # hypothetical VM escape; elevateprivileges=deny prevents setuid.
+              if grep -q '^seccompsandbox' "${KATA_CFG_NONO}"; then
+                sed -i "s|^seccompsandbox = .*|seccompsandbox = \"{{ .Values.kata.qemu.seccompSandbox }}\"|" "${KATA_CFG_NONO}"
+              else
+                sed -i "s|\(\[hypervisor\.qemu\]\)|\1\nseccompsandbox = \"{{ .Values.kata.qemu.seccompSandbox }}\"|" "${KATA_CFG_NONO}"
+              fi
+              echo "Set seccompsandbox in ${KATA_CFG_NONO}."
+              {{- end }}
+
+              # ── Enable guest seccomp so kata-agent applies OCI profiles ───
+              # disable_guest_seccomp = false means "do NOT disable" = enabled.
+              # Required for the NRI-injected seccomp_profile to take effect
+              # inside the Kata VM (kata-agent reads and applies the OCI spec
+              # seccomp field, which NRI writes via SetLinuxSeccompPolicy).
+              if grep -q '^disable_guest_seccomp' "${KATA_CFG_NONO}"; then
+                sed -i "s|^disable_guest_seccomp = .*|disable_guest_seccomp = {{ .Values.kata.qemu.disableGuestSeccomp }}|" "${KATA_CFG_NONO}"
+              else
+                sed -i "s|^\\[hypervisor\\.qemu\\]|[hypervisor.qemu]\\ndisable_guest_seccomp = {{ .Values.kata.qemu.disableGuestSeccomp }}|" "${KATA_CFG_NONO}"
+              fi
+              echo "Set disable_guest_seccomp = {{ .Values.kata.qemu.disableGuestSeccomp }} in ${KATA_CFG_NONO}."
+
               # ── Register kata-nono-qemu handler in containerd config ───────
               # Idempotent: skip if stanza already present.
               if [ ! -f "${CONTAINERD_CFG}" ]; then
