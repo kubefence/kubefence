@@ -41,11 +41,14 @@ const defaultContainerPATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:
 //     (e.g. kubectl exec pod -- bash) resolve to the wrapper first.
 //     exec'd processes inherit the container's process env, so this PATH
 //     modification applies to all subsequent execs inside the container.
+//   - Applies seccomp (if non-nil) via SetLinuxSeccompPolicy. For Kata, the
+//     kata-agent enforces this policy inside the VM when disable_guest_seccomp
+//     is false in the QEMU config.
 //
 // vmRootfs is reserved for future use and has no effect on the adjustment.
 //
 // It is safe to call with a container that has nil or empty args.
-func BuildAdjustment(ctr *api.Container, profile, hostBinPath string, vmRootfs bool) *api.ContainerAdjustment {
+func BuildAdjustment(ctr *api.Container, profile, hostBinPath string, vmRootfs bool, seccomp *api.LinuxSeccomp) *api.ContainerAdjustment {
 	prefix := []string{ContainerNonoPath, "wrap", "--profile", profile, "--"}
 	orig := ctr.GetArgs()
 	newArgs := make([]string, 0, len(prefix)+len(orig))
@@ -84,6 +87,10 @@ func BuildAdjustment(ctr *api.Container, profile, hostBinPath string, vmRootfs b
 	}
 	adj.RemoveEnv("PATH")
 	adj.AddEnv("PATH", containerNonoDirPath+":"+existingPATH)
+
+	if seccomp != nil {
+		adj.SetLinuxSeccompPolicy(seccomp)
+	}
 
 	return adj
 }

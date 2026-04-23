@@ -25,7 +25,8 @@ cmd/nono-nri/main.go              entrypoint: flags (-log-level, -json, -config)
 internal/nri/plugin.go            Plugin struct; CreateContainer, StopContainer, RemoveContainer
 internal/nri/filter.go            ShouldSandbox, SkipReason — pure, no I/O
 internal/nri/profile.go           ResolveProfile — annotation → validated profile name
-internal/nri/adjustments.go       BuildAdjustment — args wrapping + bind mount
+internal/nri/adjustments.go       BuildAdjustment — args wrapping + bind mount + seccomp policy
+internal/nri/seccomp.go           BuildSeccompPolicy — RuntimeDefault and restricted allowlists
 internal/nri/state.go             WriteMetadata, RemoveMetadata — /var/run/nono-nri/…
 internal/nri/config.go            Config struct, LoadConfig (TOML)
 internal/nri/kernel.go            CheckKernel — Linux 5.13+ required for Landlock
@@ -56,9 +57,11 @@ NRI event
        │    false → Log "skip" + return nil, nil, nil   (no adjustment, no state)
        │    true  ↓
        ├─ ResolveProfile(pod, cfg)         pod annotation "nono.sh/profile" or cfg.DefaultProfile
-       ├─ BuildAdjustment(ctr, profile, cfg.NonoBinPath, isVMRootfs)
+       ├─ BuildSeccompPolicy(cfg.SeccompProfile) → *LinuxSeccomp (nil when disabled)
+       ├─ BuildAdjustment(ctr, profile, cfg.NonoBinPath, isVMRootfs, seccomp)
        │    SetArgs: [/nono/nono, wrap, --profile, <profile>, --, <original args...>]
        │    AddMount: host dir of NonoBinPath → /nono  (bind, ro, rprivate)
+       │    SetLinuxSeccompPolicy: applied when seccomp != nil
        │    NOTE: isVMRootfs is currently a no-op — the bind-mount is always
        │    added regardless of vm_rootfs_classes membership (reserved for
        │    future use; for Kata the mount works via virtiofs either way)
@@ -130,12 +133,17 @@ StateChange. Only direct RPCs are reliable for external plugins.
   is required for NRI SDK compatibility.
 - **Kernel check runs first.** `CheckKernel()` is the very first call in
   `run()`. Do not move it after config load or logger init.
-- **Process wrapping only.** The NRI plugin's scope is strictly limited to
-  wrapping container processes with `nono wrap`. It must not enforce UID/GID
-  constraints, `runAsNonRoot`, `seccompProfile`, capability drops, or any other
-  pod security context properties via `ContainerAdjustment`. Those concerns
-  belong at the admission layer (mutating webhook or Pod Security Standards).
+- **Plugin scope: nono wrapping + seccomp hardening.** The plugin injects
+  the nono sandbox process wrapper and, when `seccomp_profile` is set, a
+  seccomp policy via `SetLinuxSeccompPolicy`. These are both part of the
+  nono sandboxing mechanism. The plugin must not enforce UID/GID constraints,
+  `runAsNonRoot`, capability drops, or other pod security context properties —
+  those belong at the admission layer (mutating webhook or Pod Security Standards).
   The plugin wraps the process regardless of which user the container runs as.
+- **seccomp_profile and kata-agent.** For Kata handlers, the seccomp policy
+  is applied inside the guest VM by the kata-agent, which reads the OCI spec
+  seccomp field written by NRI. This requires `disable_guest_seccomp = false`
+  in the kata QEMU config — set automatically by the kata-setup DaemonSet.
 
 ---
 
@@ -144,14 +152,16 @@ StateChange. Only direct RPCs are reliable for external plugins.
 TOML file at `/etc/nri/conf.d/10-nono-nri.toml`:
 
 ```toml
-runtime_classes = ["nono-runc"]   # list of RuntimeClass handler names
-default_profile = "default"        # used when pod lacks nono.sh/profile annotation
-nono_bin_path   = "/opt/nono-nri/nono"  # absolute host path; must exist at startup
-socket_path     = ""               # empty → NRI default /var/run/nri/nri.sock
+runtime_classes  = ["nono-runc"]        # list of RuntimeClass handler names
+default_profile  = "default"            # used when pod lacks nono.sh/profile annotation
+nono_bin_path    = "/opt/nono-nri/nono" # absolute host path; must exist at startup
+socket_path      = ""                   # empty → NRI default /var/run/nri/nri.sock
+seccomp_profile  = "restricted"         # "restricted" | "runtime-default" | ""
 ```
 
 `runtime_classes` and `nono_bin_path` are required; startup fails without them.
-Unknown TOML keys are silently ignored (go-toml/v2 default, intentional).
+`seccomp_profile` is optional; empty string disables NRI seccomp injection.
+Unknown TOML keys cause a parse error (`DisallowUnknownFields` is set).
 
 ---
 

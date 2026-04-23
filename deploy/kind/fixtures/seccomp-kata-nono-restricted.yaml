@@ -1,0 +1,35 @@
+# kata-nono-sandbox pod: nono-nri injects the restricted seccomp profile
+# via the NRI SetLinuxSeccompPolicy call. The kata-agent enforces it inside
+# the VM. No manual seccompProfile field is needed — nono-nri writes it.
+#
+# Expected output:
+#   BLOCKED: seccomp, ptrace, process_vm_readv, pidfd_getfd, unshare, setns,
+#            io_uring_setup, userfaultfd, bpf
+#   (all RuntimeDefault gaps closed by the restricted profile)
+#
+# Prerequisites:
+#   - nono-seccomp-actor:kata-test image loaded into the cluster
+#     (run deploy/kind/seccomp-kata-test.sh once to build and load it)
+#   - kubefence deployed with config.runtimeClasses including kata-nono-qemu
+#   - disable_guest_seccomp = false in configuration-kata-nono-qemu.toml
+#
+# Usage:
+#   kubectl apply -f seccomp-kata-nono-restricted.yaml
+#   kubectl wait --for=condition=Ready pod/seccomp-kata-nono-restricted --timeout=60s
+#   kubectl logs seccomp-kata-nono-restricted
+#   kubectl delete -f seccomp-kata-nono-restricted.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: seccomp-kata-nono-restricted
+  namespace: default
+spec:
+  runtimeClassName: kata-nono-sandbox
+  restartPolicy: Never
+  containers:
+    - name: actor
+      image: nono-seccomp-actor:kata-test
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: SECCOMP_PROFILE
+          value: "restricted (injected by nono-nri, kata-nono-qemu)"

@@ -1,0 +1,38 @@
+# Generic kata-qemu pod with Kubernetes RuntimeDefault seccomp applied directly
+# in the pod spec — no nono-nri involvement.
+# kata-agent enforces the OCI seccomp policy inside the VM
+# (requires disable_guest_seccomp = false in configuration-qemu.toml).
+#
+# Expected output:
+#   BLOCKED: pidfd_getfd, unshare, setns, io_uring_setup, userfaultfd, bpf
+#   ALLOWED: seccomp, ptrace, process_vm_readv  (RuntimeDefault gaps)
+#
+# Prerequisites:
+#   - nono-seccomp-actor:kata-test image loaded into the cluster
+#     (run deploy/kind/seccomp-kata-test.sh once to build and load it)
+#   - disable_guest_seccomp = false in configuration-qemu.toml on each node
+#     (the test cluster has this set; fresh clusters default to true)
+#
+# Usage:
+#   kubectl apply -f seccomp-kata-runtimedefault.yaml
+#   kubectl wait --for=condition=Ready pod/seccomp-kata-runtimedefault --timeout=60s
+#   kubectl logs seccomp-kata-runtimedefault
+#   kubectl delete -f seccomp-kata-runtimedefault.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: seccomp-kata-runtimedefault
+  namespace: default
+spec:
+  runtimeClassName: kata-qemu
+  restartPolicy: Never
+  securityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: actor
+      image: nono-seccomp-actor:kata-test
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: SECCOMP_PROFILE
+          value: "RuntimeDefault (pod spec, no nono, kata-qemu)"

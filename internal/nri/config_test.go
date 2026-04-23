@@ -134,4 +134,37 @@ vm_rootfs_classes = ["kata-nono-qemu"]
 		Expect(err.Error()).To(ContainSubstring("nono_bin_path must not be empty"))
 		Expect(err.Error()).To(ContainSubstring("nono-runc"))
 	})
+
+	DescribeTable("seccomp_profile validation",
+		func(value string, expectErr bool) {
+			toml := `runtime_classes = ["nono-runc"]
+default_profile = "default"
+nono_bin_path = "/opt/nono/nono"
+seccomp_profile = ` + `"` + value + `"`
+			path := writeTempConfig(toml)
+			cfg, err := nri.LoadConfig(path)
+			if expectErr {
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("seccomp_profile"))
+			} else {
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cfg.SeccompProfile).To(Equal(value))
+			}
+		},
+		Entry("empty is valid (disabled)", "", false),
+		Entry("runtime-default is valid", nri.SeccompProfileRuntimeDefault, false),
+		Entry("restricted is valid", nri.SeccompProfileRestricted, false),
+		Entry("unknown value is rejected", "custom-profile", true),
+		Entry("flag-like value is rejected", "--allow-all", true),
+	)
+
+	It("defaults seccomp_profile to empty when key is absent", func() {
+		path := writeTempConfig(`runtime_classes = ["nono-runc"]
+default_profile = "default"
+nono_bin_path = "/opt/nono/nono"
+`)
+		cfg, err := nri.LoadConfig(path)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cfg.SeccompProfile).To(Equal(""))
+	})
 })

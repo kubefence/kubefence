@@ -1,0 +1,28 @@
+# Baseline: plain kata-qemu pod with no seccomp profile.
+# nono-nri does not watch the kata-qemu handler, so no injection occurs.
+# Expected output: all dangerous syscalls ALLOWED.
+#
+# Prerequisites:
+#   - nono-seccomp-actor:kata-test image loaded into the cluster
+#     (run deploy/kind/seccomp-kata-test.sh once to build and load it)
+#
+# Usage:
+#   kubectl apply -f seccomp-kata-generic.yaml
+#   kubectl wait --for=condition=Ready pod/seccomp-kata-generic --timeout=60s
+#   kubectl logs seccomp-kata-generic
+#   kubectl delete -f seccomp-kata-generic.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: seccomp-kata-generic
+  namespace: default
+spec:
+  runtimeClassName: kata-qemu
+  restartPolicy: Never
+  containers:
+    - name: actor
+      image: nono-seccomp-actor:kata-test
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: SECCOMP_PROFILE
+          value: "none (generic kata-qemu, no seccomp)"

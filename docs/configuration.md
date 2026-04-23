@@ -25,6 +25,7 @@ These values are rendered into the TOML config file loaded by the plugin.
 | `config.defaultProfile` | `"default"` | nono profile used when a pod has no `nono.sh/profile` annotation |
 | `config.nonoBinPath` | `"/opt/nono-nri/nono"` | Absolute host path to the nono binary. Copied there by the node-setup DaemonSet init container |
 | `config.socketPath` | `""` | NRI socket path. Empty string uses the runtime default (`/var/run/nri/nri.sock`) |
+| `config.seccompProfile` | `"restricted"` | Seccomp policy injected into every sandboxed container. `"restricted"` blocks io_uring, ptrace, the seccomp syscall, and pidfd_getfd on top of RuntimeDefault. `"runtime-default"` applies the Docker RuntimeDefault allowlist. `""` disables injection |
 
 ### RuntimeClass creation
 
@@ -44,6 +45,8 @@ These values are rendered into the TOML config file loaded by the plugin.
 | `kata.shareDir` | `/opt/kata/share/kata-containers` | Directory where kata-deploy installs kata share files on each node |
 | `kata.qemuConfigPath` | `/opt/kata/share/defaults/kata-containers/runtimes/qemu/configuration-qemu.toml` | Path to the kata QEMU configuration file written by kata-deploy |
 | `kata.qemu.machineAccelerators` | `""` | Additional QEMU machine accelerators. Set to `"kernel_irqchip=split"` for nested-KVM environments (e.g. Kind clusters) |
+| `kata.qemu.seccompSandbox` | `"on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny"` | QEMU process-level seccomp sandbox (host kernel). Restricts syscalls available to the QEMU hypervisor process. `spawn=deny` prevents QEMU from exec'ing host binaries after a VM escape. Set to `""` to disable |
+| `kata.qemu.disableGuestSeccomp` | `false` | Maps to `disable_guest_seccomp` in the kata QEMU config. `false` enables the kata-agent to apply the container's OCI seccomp profile (written by the NRI plugin) inside the guest VM |
 
 ### Node setup
 
@@ -103,6 +106,19 @@ socket_path = ""
 | `default_profile` | Yes | nono profile used when a pod has no `nono.sh/profile` annotation |
 | `nono_bin_path` | Yes | Absolute path to the nono binary on the host. The plugin checks this path at startup and refuses to start if the file is absent |
 | `socket_path` | No | NRI socket path. Defaults to `/var/run/nri/nri.sock` when empty |
+| `seccomp_profile` | No | Seccomp policy injected into every sandboxed container. See below |
 
 The plugin validates `runtime_classes` and `nono_bin_path` at startup. Missing
 or empty values cause an immediate exit with an error message.
+
+### `seccomp_profile` values
+
+| Value | Description |
+|-------|-------------|
+| `"restricted"` | Docker RuntimeDefault allowlist minus `io_uring_setup`, `io_uring_enter`, `io_uring_register`, `ptrace`, `seccomp`, and `pidfd_getfd`. Default for AI workloads. Blocks io_uring (CVE-2022-2639, CVE-2023-2598), cross-process inspection, and self-filter removal |
+| `"runtime-default"` | Docker/moby RuntimeDefault allowlist verbatim. Equivalent to `seccompProfile.type: RuntimeDefault` in the pod security context |
+| `""` (empty) | Disabled. The plugin injects no seccomp policy. Pods may still set their own policy via `securityContext.seccompProfile` |
+
+Both profiles use `SCMP_ACT_ERRNO` as the default action (deny-by-default) and declare only `SCMP_ARCH_X86_64`. Syscalls already blocked by RuntimeDefault — including `bpf`, `mount`, `kexec_load`, `init_module`, `setns`, `unshare`, `process_vm_readv`, and `userfaultfd` — remain blocked in both profiles.
+
+For Kata Containers, the NRI-injected policy takes effect inside the guest VM only when `disable_guest_seccomp = false` in the kata QEMU config. The kubefence kata-setup DaemonSet sets this automatically when `kata.qemu.disableGuestSeccomp: false` (the default).

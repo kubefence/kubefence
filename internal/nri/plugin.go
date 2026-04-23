@@ -50,8 +50,9 @@ func (p *Plugin) CreateContainer(
 	}
 
 	profile := ResolveProfile(pod, p.Config)
+	seccomp := BuildSeccompPolicy(p.Config.SeccompProfile)
 
-	adj := BuildAdjustment(ctr, profile, p.Config.NonoBinPath, p.Config.IsVMRootfsClass(handler))
+	adj := BuildAdjustment(ctr, profile, p.Config.NonoBinPath, p.Config.IsVMRootfsClass(handler), seccomp)
 	if err := WriteMetadata(pod.GetUid(), ctrID, podName, namespace, profile); err != nil {
 		p.Log.Warn("failed to write state metadata", "container_id", ctrID, "error", err)
 	}

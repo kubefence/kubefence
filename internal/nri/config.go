@@ -22,6 +22,15 @@ type Config struct {
 	// invoked via kubectl exec can apply the correct profile.
 	// Handlers not listed here use bind-mount delivery (default behaviour).
 	VMRootfsClasses []string `toml:"vm_rootfs_classes"`
+	// SeccompProfile names the seccomp policy injected into every sandboxed
+	// container via ContainerAdjustment.SetLinuxSeccompPolicy.
+	// "restricted"      — RuntimeDefault minus io_uring, ptrace, seccomp,
+	//                     and pidfd_getfd; recommended for AI workloads.
+	// "runtime-default" — Docker RuntimeDefault allowlist verbatim.
+	// ""                — disabled; no seccomp policy is injected.
+	// For Kata handlers, disable_guest_seccomp must be false in the QEMU
+	// config for the kata-agent to apply this policy inside the VM.
+	SeccompProfile string `toml:"seccomp_profile"`
 }
 
 // IsVMRootfsClass reports whether the given RuntimeClass handler uses the
@@ -67,6 +76,13 @@ func LoadConfig(path string) (*Config, error) {
 	// becomes the bind-mount source, mounting the plugin's cwd into containers.
 	if cfg.NonoBinPath != "" && !filepath.IsAbs(cfg.NonoBinPath) {
 		return nil, fmt.Errorf("config: nono_bin_path %q must be an absolute path", cfg.NonoBinPath)
+	}
+	switch cfg.SeccompProfile {
+	case "", SeccompProfileRuntimeDefault, SeccompProfileRestricted:
+		// valid
+	default:
+		return nil, fmt.Errorf("config: seccomp_profile %q is invalid: must be %q, %q, or empty",
+			cfg.SeccompProfile, SeccompProfileRuntimeDefault, SeccompProfileRestricted)
 	}
 	return &cfg, nil
 }

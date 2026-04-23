@@ -12,7 +12,7 @@ var _ = Describe("BuildAdjustment", func() {
 	DescribeTable("args prepend",
 		func(originalArgs []string, profile string, expectedArgs []string) {
 			ctr := &api.Container{Id: "ctr-x", Args: originalArgs}
-			adj := nri.BuildAdjustment(ctr, profile, "/host/nono", false)
+			adj := nri.BuildAdjustment(ctr, profile, "/host/nono", false, nil)
 			Expect(adj.Args).To(Equal(expectedArgs))
 		},
 		Entry("with existing args",
@@ -32,7 +32,7 @@ var _ = Describe("BuildAdjustment", func() {
 	Describe("bind mount", func() {
 		It("mounts the host directory to /nono so binary is accessible at /nono/nono", func() {
 			ctr := &api.Container{Id: "ctr-1", Args: []string{"cmd"}}
-			adj := nri.BuildAdjustment(ctr, "strict", "/usr/local/bin/nono", false)
+			adj := nri.BuildAdjustment(ctr, "strict", "/usr/local/bin/nono", false, nil)
 
 			Expect(adj.Mounts).To(HaveLen(1))
 			m := adj.Mounts[0]
@@ -44,8 +44,8 @@ var _ = Describe("BuildAdjustment", func() {
 
 		It("uses host bind-mount regardless of vmRootfs flag", func() {
 			ctr := &api.Container{Id: "ctr-2", Args: []string{"cmd"}}
-			adjStd := nri.BuildAdjustment(ctr, "default", "/opt/nono-nri/nono", false)
-			adjVM := nri.BuildAdjustment(ctr, "default", "/opt/nono-nri/nono", true)
+			adjStd := nri.BuildAdjustment(ctr, "default", "/opt/nono-nri/nono", false, nil)
+			adjVM := nri.BuildAdjustment(ctr, "default", "/opt/nono-nri/nono", true, nil)
 
 			Expect(adjStd.Mounts[0].Source).To(Equal("/opt/nono-nri"))
 			Expect(adjVM.Mounts[0].Source).To(Equal("/opt/nono-nri"))
@@ -55,7 +55,7 @@ var _ = Describe("BuildAdjustment", func() {
 	Describe("env injection", func() {
 		It("injects NONO_PROFILE with the resolved profile", func() {
 			ctr := &api.Container{Id: "ctr-3", Args: []string{"cmd"}}
-			adj := nri.BuildAdjustment(ctr, "strict", "/opt/nono-nri/nono", false)
+			adj := nri.BuildAdjustment(ctr, "strict", "/opt/nono-nri/nono", false, nil)
 
 			envMap := make(map[string]string)
 			for _, kv := range adj.Env {
@@ -70,7 +70,7 @@ var _ = Describe("BuildAdjustment", func() {
 				Args: []string{"cmd"},
 				Env:  []string{"PATH=/custom/bin:/usr/bin", "HOME=/root"},
 			}
-			adj := nri.BuildAdjustment(ctr, "default", "/opt/nono-nri/nono", false)
+			adj := nri.BuildAdjustment(ctr, "default", "/opt/nono-nri/nono", false, nil)
 
 			envMap := make(map[string]string)
 			for _, kv := range adj.Env {
@@ -81,7 +81,7 @@ var _ = Describe("BuildAdjustment", func() {
 
 		It("uses the distribution default PATH when container has none", func() {
 			ctr := &api.Container{Id: "ctr-5", Args: []string{"cmd"}}
-			adj := nri.BuildAdjustment(ctr, "default", "/opt/nono-nri/nono", false)
+			adj := nri.BuildAdjustment(ctr, "default", "/opt/nono-nri/nono", false, nil)
 
 			envMap := make(map[string]string)
 			for _, kv := range adj.Env {
@@ -89,6 +89,25 @@ var _ = Describe("BuildAdjustment", func() {
 			}
 			Expect(envMap["PATH"]).To(HavePrefix("/nono:"))
 			Expect(envMap["PATH"]).To(ContainSubstring("/usr/local/bin"))
+		})
+	})
+
+	Describe("seccomp policy", func() {
+		It("sets no seccomp policy when seccomp is nil", func() {
+			ctr := &api.Container{Id: "ctr-6", Args: []string{"cmd"}}
+			adj := nri.BuildAdjustment(ctr, "default", "/opt/nono-nri/nono", false, nil)
+			// Linux field stays nil when no seccomp policy is requested.
+			Expect(adj.Linux).To(BeNil())
+		})
+
+		It("sets the seccomp policy when seccomp is non-nil", func() {
+			ctr := &api.Container{Id: "ctr-7", Args: []string{"cmd"}}
+			policy := nri.BuildSeccompPolicy(nri.SeccompProfileRestricted)
+			adj := nri.BuildAdjustment(ctr, "default", "/opt/nono-nri/nono", false, policy)
+
+			Expect(adj.Linux).NotTo(BeNil())
+			Expect(adj.Linux.SeccompPolicy).NotTo(BeNil())
+			Expect(adj.Linux.SeccompPolicy.DefaultAction).To(Equal("SCMP_ACT_ERRNO"))
 		})
 	})
 

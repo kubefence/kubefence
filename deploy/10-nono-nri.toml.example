@@ -27,4 +27,12 @@ runtime_classes = ["nono-runc"]
 default_profile = "default"
 nono_bin_path = "/opt/nono-nri/nono"
 socket_path = ""
+# seccomp_profile: seccomp policy injected into every sandboxed container.
+#   "restricted"      RuntimeDefault minus io_uring_*, ptrace, seccomp syscall,
+#                     and pidfd_getfd. Recommended for untrusted AI workloads.
+#   "runtime-default" Docker RuntimeDefault allowlist verbatim.
+#   ""                Disabled; no seccomp policy injected by nono-nri.
+# For Kata handlers, requires disable_guest_seccomp = false in the QEMU config
+# (set automatically by the kubefence kata-setup DaemonSet).
+seccomp_profile = "restricted"
 # vm_rootfs_classes = []
