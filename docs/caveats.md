@@ -53,9 +53,10 @@ scenarios.
 However, processes that exec a binary using its **full absolute path** (e.g.
 `exec("/usr/bin/python3", ...)`) bypass the PATH-based wrapper.
 
-For Kata pods, this is not a concern: `kubectl exec` is blocked entirely at the
-hypervisor by the kata-agent OPA policy, preventing any new process from being
-injected into the pod after it starts.
+For Kata pods, the kata-agent OPA policy permits `kubectl exec` only when the
+command is routed through `nono wrap`, so Landlock confinement applies to
+exec'd processes as well. Callers must invoke exec as:
+`kubectl exec <pod> -- /nono/nono wrap --profile <name> -- <cmd>`
 
 ## Landlock scope: filesystem only
 

@@ -40,5 +40,13 @@ default WaitProcessRequest := true
 default WriteStreamRequest := true
 default SetPolicyRequest := true
 
-# No kubectl exec
+# kubectl exec is allowed only when routed through the nono sandbox wrapper.
+# The command must be: /nono/nono wrap --profile <name> -- <cmd ...>
+# Profile names are restricted to safe identifiers (alphanumeric, hyphen,
+# underscore, leading alphanumeric) to prevent CLI flag injection.
 default ExecProcessRequest := false
+
+ExecProcessRequest {
+    i_command := concat(" ", input.process.Args)
+    regex.match(`^/nono/nono wrap --profile [a-zA-Z0-9][a-zA-Z0-9_-]{0,63} -- .+$`, i_command)
+}
