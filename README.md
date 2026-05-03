@@ -147,9 +147,12 @@ kubectl rollout status daemonset/kata-deploy -n kube-system --timeout=5m
 **Step 2 — Install kubefence with Kata support**
 
 ```bash
+KUBEFENCE_VERSION=$(helm show chart oci://ghcr.io/kubefence/charts/kubefence \
+  | grep '^version:' | awk '{print $2}')
+
 helm upgrade --install kubefence \
   oci://ghcr.io/kubefence/charts/kubefence \
-  --version 1.0.0 \
+  --version "${KUBEFENCE_VERSION}" \
   --namespace kube-system \
   --set kata.enabled=true \
   --set runtimeClasses.kataNono.enabled=true \
@@ -204,9 +207,12 @@ metadata:
 **Upgrade kubefence** (updates all three images atomically):
 
 ```bash
+KUBEFENCE_VERSION=$(helm show chart oci://ghcr.io/kubefence/charts/kubefence \
+  | grep '^version:' | awk '{print $2}')
+
 helm upgrade kubefence \
   oci://ghcr.io/kubefence/charts/kubefence \
-  --version 1.1.0 \
+  --version "${KUBEFENCE_VERSION}" \
   --namespace kube-system \
   --reuse-values
 ```
@@ -221,9 +227,12 @@ DaemonSet — no manual containerd config changes required.
 
 ```bash
 # Install kubefence
+KUBEFENCE_VERSION=$(helm show chart oci://ghcr.io/kubefence/charts/kubefence \
+  | grep '^version:' | awk '{print $2}')
+
 helm upgrade --install kubefence \
   oci://ghcr.io/kubefence/charts/kubefence \
-  --version 1.0.0 \
+  --version "${KUBEFENCE_VERSION}" \
   --namespace kube-system \
   --wait
 
