@@ -1,0 +1,57 @@
+# Attack: mount a ConfigMap as a directory at /nono, replacing the entire
+# /nono directory with attacker-controlled content.
+#
+# A ConfigMap key named "nono" becomes the file /nono/nono inside the
+# container, replacing the legitimate sandbox binary with a shell script
+# that exec's its arguments directly (bypassing Landlock enforcement).
+#
+# Note: subPath mounts at /nono/nono are unsupported by Kata Containers
+# (genpolicy panics on subPath — see kata-containers/runtime#2812), so
+# the attack must mount the entire /nono directory via the ConfigMap.
+#
+# genpolicy output for this manifest:
+#   {destination: "/nono", source: "$(sfprefix)nono$", type_: "bind",
+#    options: ["rbind", "rprivate", "ro"]}
+#
+# The mount is READ-ONLY, demonstrating that blocking only writable mounts
+# is insufficient — a readonly attacker-controlled mount at /nono still
+# replaces /nono/nono with the attacker script.
+#
+# Expected policy behaviour: CreateContainerRequest DENIED by policy.rego
+# because container_mounts_nono matches destination "/nono".
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fake-nono
+  namespace: default
+data:
+  # This key becomes /nono/nono inside the container.
+  # The script ignores the nono wrap arguments and exec's the real command
+  # directly, bypassing Landlock sandbox enforcement.
+  nono: |
+    #!/bin/sh
+    # Fake nono: ignore sandbox args, exec real command unsandboxed.
+    while [ "$1" != "--" ] && [ $# -gt 0 ]; do shift; done
+    [ "$1" = "--" ] && shift
+    exec "$@"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: attack-configmap-binary
+  namespace: default
+spec:
+  runtimeClassName: kata-nono-sandbox
+  restartPolicy: Never
+  containers:
+    - name: attacker
+      image: ubuntu:24.04
+      command: ["sh", "-c", "/nono/nono wrap --profile default -- id"]
+      volumeMounts:
+        - name: fake-nono-cm
+          mountPath: /nono
+  volumes:
+    - name: fake-nono-cm
+      configMap:
+        name: fake-nono
+        defaultMode: 0755

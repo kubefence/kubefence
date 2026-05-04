@@ -1,7 +1,7 @@
 BINARY := 10-nono-nri
 CMD := ./cmd/nono-nri
 
-.PHONY: build test test-all clean fmt lint check \
+.PHONY: build test test-all policy-test clean fmt lint check \
         nono-build docker-build docker-load-kind \
         kind-up kind-test kind-down kind-e2e
 
@@ -13,6 +13,12 @@ test:
 
 test-all:
 	go test ./... -v -count=1
+
+# OPA unit tests for the kata-agent policy.
+# Requires the opa binary: https://openpolicyagent.org/docs/latest/#running-opa
+policy-test:
+	opa test deploy/kind/kata-rootfs/policy.rego \
+	         deploy/kind/kata-rootfs/policy_test.rego -v
 
 clean:
 	rm -f $(BINARY)

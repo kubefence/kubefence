@@ -1,0 +1,19 @@
+# Reference: the pause (sandbox) container created by the container runtime.
+# nono-nri processes the PodSandbox event separately and does NOT inject a
+# /nono bind-mount into the pause container. The pause container therefore
+# has zero /nono-prefix mounts in its OCI spec.
+# CreateContainerRequest must be ALLOWED (nono_prefix mount count == 0).
+#
+# Note: this manifest is documentation only — the pause container is created
+# implicitly by the runtime and never submitted via kubectl apply.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-pause-reference
+  namespace: default
+spec:
+  runtimeClassName: kata-nono-sandbox
+  restartPolicy: Never
+  containers:
+    - name: pause
+      image: registry.k8s.io/pause:3.9

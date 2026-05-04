@@ -63,10 +63,19 @@ check_contains() {
 json_get() { echo "$1" | grep -o "\"$2\":\"[^\"]*\"" | sed 's/.*":"//' | tr -d '"'; }
 
 cleanup_pods() {
-  kubectl delete pod nono-e2e-sandboxed nono-e2e-plain nono-e2e-kata \
+  kubectl delete pod \
+    nono-e2e-sandboxed nono-e2e-plain nono-e2e-kata nono-e2e-kata-qemu \
+    nono-policy-hostpath-dir nono-policy-hostpath-file \
+    nono-policy-emptydir nono-policy-configmap nono-policy-legit \
     --ignore-not-found=true --wait=false &>/dev/null || true
+  kubectl delete configmap nono-policy-test-cm \
+    --ignore-not-found=true &>/dev/null || true
 }
 trap cleanup_pods EXIT
+
+# Whether the cluster was deployed with the custom kata rootfs (embedded nono
+# binary + hardened kata-agent policy).  Set to false to skip Test 7.
+KATA_ROOTFS="${KATA_ROOTFS:-true}"
 
 # ── Build + load e2e test image ───────────────────────────────────────────────
 # nono is dynamically linked (glibc + libdbus-1). Alpine containers cannot run it.
@@ -110,8 +119,12 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 # Pre-cleanup: remove leftover test pods and stale state dir entries from prior runs
-kubectl delete pod nono-e2e-sandboxed nono-e2e-plain debug-sandboxed \
+kubectl delete pod \
+  nono-e2e-sandboxed nono-e2e-plain debug-sandboxed \
+  nono-policy-hostpath-dir nono-policy-hostpath-file \
+  nono-policy-emptydir nono-policy-configmap nono-policy-legit \
   --ignore-not-found=true --wait=false &>/dev/null || true
+kubectl delete configmap nono-policy-test-cm --ignore-not-found=true &>/dev/null || true
 
 # ── Test 1: Plugin connectivity ───────────────────────────────────────────────
 echo "── Test 1: Plugin connectivity ──────────────────────────────────────────"
@@ -411,6 +424,205 @@ EOF
     "$PLUGIN_LOGS4" '"pod":"nono-e2e-kata-qemu"'
 
   kubectl delete pod nono-e2e-kata-qemu --wait=false --ignore-not-found=true &>/dev/null || true
+fi
+
+echo ""
+
+# ── Test 7: kata-agent policy enforcement (requires KATA_ROOTFS=true) ────────
+echo "── Test 7: kata-agent policy enforcement ────────────────────────────────"
+
+if [[ -z "$KATA_RC" || "$KATA_ROOTFS" != "true" ]]; then
+  pass "policy enforcement tests (skipped — requires kata-nono-sandbox + KATA_ROOTFS=true)"
+else
+
+  # Two-layer defence model:
+  #
+  # Layer 1 — NRI mount replacement (OCI mount semantics):
+  #   When a user spec includes a volume at /nono (the exact same destination
+  #   as the NRI-injected mount), containerd merges mounts by destination and
+  #   the NRI-injected read-only bind-mount wins.  The attack container still
+  #   reaches Running, but /nono/nono is the trusted binary, not the attacker's.
+  #   Affected attacks: hostPath dir, emptyDir, ConfigMap dir at /nono.
+  #
+  # Layer 2 — kata-agent OPA policy (CreateContainerRequest count > 1):
+  #   A user volume at /nono/nono (the binary file, a different destination from
+  #   the NRI /nono dir mount) adds a second /nono-prefix entry to OCI.Mounts.
+  #   The policy rule denies any container where count(mounts starting with /nono)
+  #   exceeds 1.  kata-agent emits "CreateContainerRequest is blocked by policy".
+  #   Affected attack: hostPath file at /nono/nono.
+
+  # Poll pod events until the kata-agent's rejection string appears or timeout.
+  # kata-agent emits: "<ep> is blocked by policy: <detail>" (policy.rs:allow_request).
+  # Returns the last event message; prints diagnostics to stderr on timeout.
+  _wait_policy_denied() {
+    local pod="$1"
+    local event_msg=""
+    for _i in $(seq 1 60); do
+      event_msg=$(kubectl get events \
+        --field-selector "involvedObject.name=${pod}" \
+        --sort-by='.lastTimestamp' \
+        -o jsonpath='{.items[-1].message}' 2>/dev/null || echo "")
+      echo "${event_msg}" | grep -q "blocked by policy" && break
+      sleep 1
+    done
+    if ! echo "${event_msg}" | grep -q "blocked by policy"; then
+      echo "  pod status: $(kubectl get pod "${pod}" --no-headers 2>/dev/null | awk '{print $3}')" >&2
+      kubectl get events --field-selector "involvedObject.name=${pod}" \
+        --sort-by='.lastTimestamp' 2>/dev/null | tail -3 | sed 's/^/  /' >&2
+    fi
+    echo "${event_msg}"
+  }
+
+  # Legitimate pod with no user volume at /nono must reach Running.
+  kubectl apply -f - &>/dev/null <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nono-policy-legit
+  namespace: default
+  annotations:
+    nono.sh/profile: "default"
+spec:
+  runtimeClassName: kata-nono-sandbox
+  restartPolicy: Never
+  containers:
+    - name: app
+      image: ${TEST_IMAGE}
+      imagePullPolicy: IfNotPresent
+      command: ["sleep", "infinity"]
+EOF
+  check "policy: legitimate pod (no /nono volume) starts Running" \
+    kubectl wait --for=condition=ready pod/nono-policy-legit --timeout=90s
+  kubectl delete pod nono-policy-legit --wait=false --ignore-not-found=true &>/dev/null || true
+
+  # Layer 1 — NRI mount replacement: attacks with a volume at /nono (same destination
+  # as the NRI bind-mount) are neutralised by the OCI merge; the container reaches
+  # Running but /nono/nono is the trusted NRI binary, not the attacker's payload.
+
+  # hostPath dir at /nono: NRI /nono mount overrides user mount.
+  kubectl apply -f - &>/dev/null <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nono-policy-hostpath-dir
+  namespace: default
+spec:
+  runtimeClassName: kata-nono-sandbox
+  restartPolicy: Never
+  containers:
+    - name: attacker
+      image: ${TEST_IMAGE}
+      imagePullPolicy: IfNotPresent
+      command: ["sleep", "infinity"]
+      volumeMounts:
+        - name: evil-nono
+          mountPath: /nono
+  volumes:
+    - name: evil-nono
+      hostPath:
+        path: /tmp/evil-nono
+        type: DirectoryOrCreate
+EOF
+  check "NRI: hostPath dir at /nono — Running (NRI /nono mount overrides attack mount)" \
+    kubectl wait --for=condition=ready pod/nono-policy-hostpath-dir --timeout=90s
+  kubectl delete pod nono-policy-hostpath-dir --wait=false --ignore-not-found=true &>/dev/null || true
+
+  # emptyDir at /nono: NRI /nono mount overrides user mount.
+  kubectl apply -f - &>/dev/null <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nono-policy-emptydir
+  namespace: default
+spec:
+  runtimeClassName: kata-nono-sandbox
+  restartPolicy: Never
+  containers:
+    - name: attacker
+      image: ${TEST_IMAGE}
+      imagePullPolicy: IfNotPresent
+      command: ["sleep", "infinity"]
+      volumeMounts:
+        - name: nono-override
+          mountPath: /nono
+  volumes:
+    - name: nono-override
+      emptyDir: {}
+EOF
+  check "NRI: emptyDir at /nono — Running (NRI /nono mount overrides attack mount)" \
+    kubectl wait --for=condition=ready pod/nono-policy-emptydir --timeout=90s
+  kubectl delete pod nono-policy-emptydir --wait=false --ignore-not-found=true &>/dev/null || true
+
+  # ConfigMap dir at /nono: NRI /nono mount overrides user mount.
+  kubectl apply -f - &>/dev/null <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nono-policy-test-cm
+  namespace: default
+data:
+  nono: |
+    #!/bin/sh
+    exec "\$@"
+EOF
+  kubectl apply -f - &>/dev/null <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nono-policy-configmap
+  namespace: default
+spec:
+  runtimeClassName: kata-nono-sandbox
+  restartPolicy: Never
+  containers:
+    - name: attacker
+      image: ${TEST_IMAGE}
+      imagePullPolicy: IfNotPresent
+      command: ["sleep", "infinity"]
+      volumeMounts:
+        - name: fake-nono-cm
+          mountPath: /nono
+  volumes:
+    - name: fake-nono-cm
+      configMap:
+        name: nono-policy-test-cm
+        defaultMode: 493
+EOF
+  check "NRI: ConfigMap dir at /nono — Running (NRI /nono mount overrides attack mount)" \
+    kubectl wait --for=condition=ready pod/nono-policy-configmap --timeout=90s
+  kubectl delete pod nono-policy-configmap --wait=false --ignore-not-found=true &>/dev/null || true
+
+  # Layer 2 — kata-agent policy: a hostPath file at /nono/nono adds a second
+  # /nono-prefix OCI mount (destination /nono/nono) alongside the NRI /nono dir
+  # mount.  count(mounts) == 2 > 1 → kata-agent denies CreateContainerRequest.
+  kubectl apply -f - &>/dev/null <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nono-policy-hostpath-file
+  namespace: default
+spec:
+  runtimeClassName: kata-nono-sandbox
+  restartPolicy: Never
+  containers:
+    - name: attacker
+      image: ${TEST_IMAGE}
+      imagePullPolicy: IfNotPresent
+      command: ["sleep", "infinity"]
+      volumeMounts:
+        - name: evil-binary
+          mountPath: /nono/nono
+  volumes:
+    - name: evil-binary
+      hostPath:
+        path: /tmp/evil-nono-binary
+        type: FileOrCreate
+EOF
+  EVENT_MSG=$(_wait_policy_denied nono-policy-hostpath-file)
+  check_contains "policy: hostPath file at /nono/nono blocked by kata-agent" \
+    "$EVENT_MSG" "blocked by policy"
+  kubectl delete pod nono-policy-hostpath-file --wait=false --ignore-not-found=true &>/dev/null || true
+
 fi
 
 echo ""

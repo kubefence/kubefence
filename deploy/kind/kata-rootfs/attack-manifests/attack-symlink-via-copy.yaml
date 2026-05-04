@@ -1,0 +1,28 @@
+# Attack: use kubectl cp to upload a symlink pointing /nono/nono elsewhere.
+#
+# kubectl cp internally uses the kata-agent CopyFileRequest RPC to transfer
+# files into the guest VM filesystem (for kata containers).  An attacker
+# could copy a symlink to /nono/nono that redirects execution to an
+# attacker-controlled binary already present inside the container image.
+#
+# This manifest itself is benign; the attack happens post-deployment via:
+#   kubectl cp ./symlink-nono attack-symlink-via-copy:/nono/nono
+#
+# The hardened policy must deny CopyFileRequest when input.path starts with
+# "/nono" to block this vector.
+#
+# Expected policy behaviour:
+#   - CopyFileRequest to /nono/nono → DENIED by policy.rego CopyFileRequest rule
+#   - CopyFileRequest to /nono/     → DENIED by policy.rego CopyFileRequest rule
+apiVersion: v1
+kind: Pod
+metadata:
+  name: attack-symlink-via-copy
+  namespace: default
+spec:
+  runtimeClassName: kata-nono-sandbox
+  restartPolicy: Never
+  containers:
+    - name: target
+      image: ubuntu:24.04
+      command: ["sleep", "infinity"]

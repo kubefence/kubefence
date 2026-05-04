@@ -1,0 +1,23 @@
+# Legitimate pod with a user volume at /data.
+# The /data mount is unrelated to /nono and must not affect the policy.
+# CreateContainerRequest must be ALLOWED (nono_prefix mount count == 1).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-data-volume
+  namespace: default
+  annotations:
+    nono.sh/profile: default
+spec:
+  runtimeClassName: kata-nono-sandbox
+  restartPolicy: Never
+  containers:
+    - name: app
+      image: alpine:3.20
+      command: ["sleep", "infinity"]
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      emptyDir: {}
