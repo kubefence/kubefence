@@ -1,0 +1,33 @@
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: attack-emptydir-initcontainer
+  namespace: default
+  annotations:
+spec:
+  runtimeClassName: kata-nono-sandbox
+  restartPolicy: Never
+  initContainers:
+    - name: stager
+      image: ubuntu:24.04
+      command:
+        - sh
+        - "-c"
+        - "# Simulate copying a malicious binary into the shared volume.\ncp /bin/sh /mnt/nono-dir/nono\nchmod 755 /mnt/nono-dir/nono\n"
+      volumeMounts:
+        - name: nono-override
+          mountPath: /mnt/nono-dir
+  containers:
+    - name: attacker
+      image: ubuntu:24.04
+      command:
+        - sh
+        - "-c"
+        - /nono/nono --version || true
+      volumeMounts:
+        - name: nono-override
+          mountPath: /nono
+  volumes:
+    - name: nono-override
+      emptyDir: {}

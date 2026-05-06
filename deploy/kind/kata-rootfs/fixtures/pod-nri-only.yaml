@@ -1,0 +1,17 @@
+# Legitimate pod with no user-specified volumes.
+# The only /nono mount is the one injected by nono-nri (BuildAdjustment).
+# CreateContainerRequest must be ALLOWED (nono_prefix mount count == 1).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-nri-only
+  namespace: default
+  annotations:
+    nono.sh/profile: default
+spec:
+  runtimeClassName: kata-nono-sandbox
+  restartPolicy: Never
+  containers:
+    - name: app
+      image: alpine:3.20
+      command: ["sleep", "infinity"]

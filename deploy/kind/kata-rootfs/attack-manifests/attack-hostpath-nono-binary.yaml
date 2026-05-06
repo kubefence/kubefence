@@ -1,0 +1,25 @@
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: attack-hostpath-nono-binary
+  namespace: default
+  annotations:
+spec:
+  runtimeClassName: kata-nono-sandbox
+  restartPolicy: Never
+  containers:
+    - name: attacker
+      image: ubuntu:24.04
+      command:
+        - sh
+        - "-c"
+        - /nono/nono --version || true
+      volumeMounts:
+        - name: evil-binary
+          mountPath: /nono/nono
+  volumes:
+    - name: evil-binary
+      hostPath:
+        path: /tmp/evil-nono-binary
+        type: FileOrCreate

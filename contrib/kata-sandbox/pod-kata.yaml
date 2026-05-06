@@ -11,12 +11,9 @@ spec:
   restartPolicy: Never
   containers:
     - name: demo
-      #image: nono-kata-demo:latest
-      image: nono-demo-python:latest
+      image: python:3.11.15-trixie
       imagePullPolicy: IfNotPresent
       # NRI injects nono at container creation time inside the Kata VM:
       #   /nono/nono wrap --profile default -- sleep infinity
       # nono applies Landlock, then exec()s into sleep — PID 1 is sandboxed.
-      # /bin/bash is the nono wrapper — so plain exec auto-sandboxes:
-      #   kubectl exec -it kata-nono-demo -- bash   ← sandboxed inside VM
       command: ["sleep", "infinity"]

@@ -57,12 +57,14 @@ communication. A workload that bypasses the filesystem entirely (e.g. via
 Kata Containers is the preferred runtime for kubefence. It adds a second
 enforcement layer on top of nono: each pod runs inside a QEMU/KVM micro-VM,
 so a container escape still requires breaking out of the VM. `kubectl exec`
-is also blocked at the hypervisor level by the kata-agent OPA policy.
+is gated at the hypervisor level by the kata-agent OPA policy: only invocations
+routed through `nono wrap` are permitted, ensuring Landlock confinement applies
+to exec'd processes as well.
 
 | Feature | Kata path | runc path |
 |---------|-----------|-----------|
 | VM isolation | Yes — each pod runs in a QEMU/KVM micro-VM | No — shared kernel with node |
-| `kubectl exec` blocking | Yes — blocked by kata-agent OPA policy | No — must be blocked by admission policy (e.g. Kyverno) |
+| `kubectl exec` via nono | Yes — kata-agent OPA policy permits exec only through `nono wrap` | No — PATH wrappers cover name-only execs; full-path execs bypass |
 | Landlock enforcement | Yes — nono applies Landlock inside the VM | Yes — nono applies Landlock on the node kernel |
 | Custom kernel | Yes — kubefence deploys a custom kernel with `CONFIG_SECURITY_LANDLOCK=y` | No — requires node kernel 5.13+ with Landlock already enabled |
 | Deployment complexity | Higher — requires KVM, kata-deploy, three DaemonSets | Lower — requires containerd 2.2.0+, two DaemonSets |
@@ -70,7 +72,7 @@ is also blocked at the hypervisor level by the kata-agent OPA policy.
 
 For running AI agents or other untrusted code, Kata is strongly recommended
 because the combination of VM isolation, Landlock filesystem confinement, and
-`kubectl exec` blocking closes most lateral-movement paths.
+nono-gated `kubectl exec` closes most lateral-movement paths.
 
 ## Delivery mode
 
