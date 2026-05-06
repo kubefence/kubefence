@@ -17,7 +17,8 @@
 # is insufficient — a readonly attacker-controlled mount at /nono still
 # replaces /nono/nono with the attacker script.
 #
-# Expected policy behaviour: CreateContainerRequest DENIED by policy.rego
+# Expected behaviour: pod reaches Running — neutralised by Layer 1 (NRI mount
+# overrides user /nono mount; containerd merges same-destination OCI mounts).
 # because container_mounts_nono matches destination "/nono".
 apiVersion: v1
 kind: ConfigMap

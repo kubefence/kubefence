@@ -77,42 +77,38 @@ copies_to_nono_path if {
 }
 
 # ── CreateContainerRequest ────────────────────────────────────────────────────
-# Block containers whose OCI spec carries more than one /nono-prefix mount,
-# which indicates a user-controlled volume at /nono/nono alongside the
-# legitimate NRI-injected /nono dir mount.
+# Block containers that carry a user-controlled volume at /nono or /nono/*.
 #
-# Two-layer defence model (verified on a live kata-nono-qemu cluster):
+# Key discriminator — rbind vs bind:
+#   User-specified Kubernetes volume mounts are converted to OCI mounts with
+#   "rbind" (recursive bind) by containerd.  The NRI-injected /nono mount uses
+#   "bind" (non-recursive), set explicitly by BuildAdjustment:
+#     Options: []string{"bind", "ro", "rprivate"}
+#   Checking for "rbind" therefore identifies user-supplied mounts regardless
+#   of whether the NRI plugin is running, closing the gap where a single user
+#   /nono mount (count == 1) would have passed the previous count > 1 rule.
 #
-# Layer 1 — NRI mount replacement (handled outside this rule):
-#   When a user spec declares a volume at /nono (same destination as the NRI
-#   bind-mount), containerd merges OCI mounts by destination and the NRI
-#   read-only bind-mount wins.  The kata-agent therefore sees only ONE /nono
-#   entry; count == 1 and this rule allows the container.  Inside the VM the
-#   trusted nono binary is present; the attack payload is never visible.
-#   Attacks neutralised by Layer 1: hostPath dir, emptyDir, ConfigMap/Secret
-#   dir all mounted at /nono.
+# NRI-absent safety: if the NRI plugin is misconfigured or absent, no /nono
+#   bind-mount is injected at all (count == 0).  Legitimate containers are
+#   still allowed.  Any attacker-supplied /nono mount has rbind and is denied.
+#   Inside the kata VM, /nono/nono is provided by the rootfs image, so
+#   ExecProcessRequest gating remains effective against a trusted binary.
 #
-# Layer 2 — this policy rule:
-#   A hostPath file mount at /nono/nono has a DIFFERENT OCI destination from
-#   the NRI /nono dir mount, so both entries survive the merge.  The count
-#   reaches 2, and this rule denies CreateContainerRequest with
-#   "CreateContainerRequest is blocked by policy".
-#   Attack caught by Layer 2: hostPath file at /nono/nono.
-#
-# Containers with zero /nono mounts (pause, non-sandboxed) pass as well
-# since 0 <= 1.
+# Attacks blocked: hostPath (dir or file), emptyDir, ConfigMap, Secret at
+#   /nono or /nono/nono — all carry rbind in their OCI options.
 #
 # Note: kubectl cp attacks via exec+tar are blocked by ExecProcessRequest.
 #       subPath mounts at /nono/nono are unsupported by Kata (genpolicy panics).
 default CreateContainerRequest := false
 
 CreateContainerRequest if {
-    not container_has_extra_nono_mounts
+    not container_has_user_nono_mount
 }
 
-container_has_extra_nono_mounts if {
-    nono_mounts := [m | some m in input.OCI.Mounts; nono_prefix_destination(m.destination)]
-    count(nono_mounts) > 1
+container_has_user_nono_mount if {
+    some mount in input.OCI.Mounts
+    nono_prefix_destination(mount.destination)
+    "rbind" in mount.options
 }
 
 nono_prefix_destination(dest) if {

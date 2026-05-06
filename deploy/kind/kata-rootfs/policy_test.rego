@@ -132,14 +132,13 @@ test_create_allowed_sibling_nono_prefix_dir if {
 }
 
 # ── CreateContainerRequest — denied cases ─────────────────────────────────────
-# Only the hostPath file attack at /nono/nono reaches the kata-agent in
-# practice: its destination differs from the NRI /nono dir mount so both
-# entries survive containerd's same-destination mount merge (count == 2).
-# Directory-level /nono attacks are neutralised earlier by Layer 1
-# (NRI mount replacement) and never reach the kata-agent.
+# User-specified volume mounts carry "rbind" in their OCI options; the
+# NRI-injected /nono mount uses "bind" (non-recursive).  The policy blocks any
+# /nono-prefix mount that has "rbind", covering both the NRI-present and
+# NRI-absent scenarios.
 
 # attack-manifests/attack-hostpath-nono-binary.yaml
-# hostPath file at /nono/nono + NRI /nono dir mount = 2 entries → denied.
+# hostPath file at /nono/nono (rbind) → denied even with NRI /nono present.
 test_create_denied_hostpath_nono_binary if {
     not CreateContainerRequest with input as {"OCI": {"Mounts": [
         proc_mount,
@@ -147,6 +146,18 @@ test_create_denied_hostpath_nono_binary if {
             "source": "/tmp/evil-binary",
             "options": ["rbind", "rprivate", "rw"]},
         nri_nono_mount,
+    ]}}
+}
+
+# NRI-absent scenario: user supplies a single /nono mount (rbind) with no NRI
+# mount present.  The previous count > 1 rule would have allowed this (count
+# == 1); the rbind discriminator correctly denies it.
+test_create_denied_user_nono_when_nri_absent if {
+    not CreateContainerRequest with input as {"OCI": {"Mounts": [
+        proc_mount,
+        {"destination": "/nono", "type_": "bind",
+            "source": "/tmp/evil-nono",
+            "options": ["rbind", "rprivate", "ro"]},
     ]}}
 }
 
