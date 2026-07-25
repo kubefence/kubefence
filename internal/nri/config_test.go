@@ -113,26 +113,26 @@ nono_bin_path = "relative/path/nono"
 		Expect(err.Error()).To(ContainSubstring("must be an absolute path"))
 	})
 
-	It("allows missing nono_bin_path when all handlers are in vm_rootfs_classes", func() {
+	It("returns error for missing nono_bin_path", func() {
 		path := writeTempConfig(`runtime_classes = ["kata-nono-qemu"]
 default_profile = "default"
-vm_rootfs_classes = ["kata-nono-qemu"]
-`)
-		cfg, err := nri.LoadConfig(path)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(cfg.IsVMRootfsClass("kata-nono-qemu")).To(BeTrue())
-		Expect(cfg.IsVMRootfsClass("kata-qemu")).To(BeFalse())
-	})
-
-	It("returns error for missing nono_bin_path when some handlers use bind-mount", func() {
-		path := writeTempConfig(`runtime_classes = ["nono-runc", "kata-nono-qemu"]
-default_profile = "default"
-vm_rootfs_classes = ["kata-nono-qemu"]
 `)
 		_, err := nri.LoadConfig(path)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("nono_bin_path must not be empty"))
-		Expect(err.Error()).To(ContainSubstring("nono-runc"))
+	})
+
+	// vm_rootfs_classes was removed. LoadConfig uses DisallowUnknownFields, so a
+	// config still carrying the key fails loudly rather than silently ignoring it.
+	It("rejects the removed vm_rootfs_classes key", func() {
+		path := writeTempConfig(`runtime_classes = ["kata-nono-qemu"]
+default_profile = "default"
+nono_bin_path = "/opt/nono-nri/nono"
+vm_rootfs_classes = ["kata-nono-qemu"]
+`)
+		_, err := nri.LoadConfig(path)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("vm_rootfs_classes"))
 	})
 
 	DescribeTable("seccomp_profile validation",

@@ -34,8 +34,8 @@ therefore mount the entire `/nono` directory (not the file via subPath).
 Attack neutralisation depends on which OCI destination the attack targets:
 
 **Layer 1 — NRI mount replacement** (attacks with destination `/nono`):
-`BuildAdjustment` always injects a read-only `/nono` bind-mount regardless of
-vmRootfs mode.  When the user spec declares a volume at the same destination
+`BuildAdjustment` always injects a read-only `/nono` bind-mount, for every
+handler.  When the user spec declares a volume at the same destination
 (`/nono`), containerd merges OCI mounts by destination and the NRI mount wins.
 The kata-agent therefore sees only **one** `/nono` entry; the policy count rule
 allows the container and the trusted nono binary is used.  Attacks neutralised:

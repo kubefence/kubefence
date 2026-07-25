@@ -21,7 +21,6 @@ config:
   defaultProfile: "default"
   nonoBinPath: "/opt/nono-nri/nono"
   socketPath: ""
-  vmRootfsClasses: []
   # seccompProfile is the seccomp policy injected into every sandboxed container.
   # "restricted"      — RuntimeDefault minus io_uring_*, ptrace, the seccomp
   #                     syscall, and pidfd_getfd. Default for AI workloads.

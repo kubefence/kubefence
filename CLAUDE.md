@@ -292,7 +292,7 @@ is opt-in, not the other way around.
 - Used by: Plugin lifecycle methods; validates path components to prevent directory traversal
 - Purpose: TOML config loading and validation
 - Location: `internal/nri/config.go`
-- Contains: `Config` struct (RuntimeClasses, DefaultProfile, NonoBinPath, SocketPath, VMRootfsClasses); `LoadConfig()` validates required fields
+- Contains: `Config` struct (RuntimeClasses, DefaultProfile, NonoBinPath, SocketPath, SeccompProfile); `LoadConfig()` validates required fields
 - Depends on: `github.com/pelletier/go-toml/v2`
 - Used by: main() and Plugin constructor
 - Purpose: Verify Linux 5.13+ for Landlock LSM support before any other setup
@@ -348,10 +348,10 @@ is opt-in, not the other way around.
 - Pattern: Hierarchical: `/var/run/nono-nri/<podUID>/<containerID>/metadata.json` with 0700 dir perms, 0600 file perms
 - Validation: validPathComponent() rejects empty, ".", "..", and path separators on podUID and containerID before path construction
 - JSON schema: ContainerMetadata with container_id, pod, namespace, profile, timestamp
-- Purpose: Skip bind-mount for Kata VMs with embedded nono in guest rootfs
-- Examples: `internal/nri/config.go` VMRootfsClasses, `internal/nri/adjustments.go` vmRootfs param
-- Pattern: cfg.IsVMRootfsClass(handler) returns true for handlers in VMRootfsClasses; skip bind-mount, inject NONO_PROFILE env var instead
-- Rationale: Kata guest rootfs already has /nono/nono; virtiofs bind-mount would be redundant
+- Purpose: Deliver the hardened kata-agent OPA policy to Kata guests
+- Examples: `deploy/kind/kata-extension/` (erofs extension image + agent-config.toml)
+- Pattern: kata `guest_extension_images` cold-plugs the image as read-only virtio-blk; the guest mounts it at /run/kata-extensions/nono before kata-agent starts, and `agent.config_file` in kernel_params points the agent at the policy inside it
+- Rationale: The stock kata guest image and kernel stay unmodified; nono itself is always delivered by host bind-mount (virtiofs for Kata)
 ## Entry Points
 - Location: `cmd/nono-nri/main.go` main()
 - Triggers: Container runtime invokes the nono-nri executable
@@ -385,7 +385,7 @@ is opt-in, not the other way around.
 - Path component validation in `internal/nri/state.go` validPathComponent() prevents directory traversal
 - Profile regex in `internal/nri/profile.go` prevents CLI flag injection
 - Kernel version check in `internal/nri/kernel.go` runs first
-- Config validation in `internal/nri/config.go` requires runtime_classes and nono_bin_path (unless all classes are in vm_rootfs_classes)
+- Config validation in `internal/nri/config.go` requires runtime_classes and nono_bin_path
 - Binary executable check in main.go verifies nono_bin_path exists and is runnable
 - None (NRI socket connection is trusted; only local runtime can invoke the plugin)
 - `/var/run/nono-nri/` directory on the host (DaemonSet creates via emptyDir volume)

@@ -2,6 +2,7 @@ package nri
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,13 +16,6 @@ type Config struct {
 	DefaultProfile string   `toml:"default_profile"`
 	NonoBinPath    string   `toml:"nono_bin_path"`
 	SocketPath     string   `toml:"socket_path"`
-	// VMRootfsClasses lists RuntimeClass handler names whose pods run inside a
-	// Kata VM with nono pre-installed in the guest rootfs at /nono/nono.
-	// For these handlers the per-container host bind-mount is skipped;
-	// NONO_PROFILE is injected as an env var instead so wrapper scripts
-	// invoked via kubectl exec can apply the correct profile.
-	// Handlers not listed here use bind-mount delivery (default behaviour).
-	VMRootfsClasses []string `toml:"vm_rootfs_classes"`
 	// SeccompProfile names the seccomp policy injected into every sandboxed
 	// container via ContainerAdjustment.SetLinuxSeccompPolicy.
 	// "restricted"      — RuntimeDefault minus io_uring, ptrace, seccomp,
@@ -31,17 +25,6 @@ type Config struct {
 	// For Kata handlers, disable_guest_seccomp must be false in the QEMU
 	// config for the kata-agent to apply this policy inside the VM.
 	SeccompProfile string `toml:"seccomp_profile"`
-}
-
-// IsVMRootfsClass reports whether the given RuntimeClass handler uses the
-// embedded-nono VM rootfs delivery rather than the host bind-mount.
-func (c *Config) IsVMRootfsClass(handler string) bool {
-	for _, h := range c.VMRootfsClasses {
-		if h == handler {
-			return true
-		}
-	}
-	return false
 }
 
 // LoadConfig reads and parses a TOML config file at the given path.
@@ -56,6 +39,14 @@ func LoadConfig(path string) (*Config, error) {
 	dec := toml.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&cfg); err != nil {
+		// DisallowUnknownFields reports only "fields in the document are missing
+		// in the target struct" — no indication of which key. StrictMissingError
+		// carries a rendered excerpt naming the offending key and line, which is
+		// what makes a removed key (e.g. vm_rootfs_classes) diagnosable.
+		var strictErr *toml.StrictMissingError
+		if errors.As(err, &strictErr) {
+			return nil, fmt.Errorf("parsing config: unknown key(s):\n%s", strictErr.String())
+		}
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 	if len(cfg.RuntimeClasses) == 0 {
@@ -64,17 +55,15 @@ func LoadConfig(path string) (*Config, error) {
 	if !validProfileRe.MatchString(cfg.DefaultProfile) {
 		return nil, fmt.Errorf("config: default_profile %q is invalid: must match ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$", cfg.DefaultProfile)
 	}
-	// nono_bin_path is required for any handler that uses bind-mount delivery.
+	// nono is always delivered by host bind-mount, for every handler — a plain
+	// bind for runc, virtiofs for Kata — so nono_bin_path is unconditionally
+	// required.
 	if cfg.NonoBinPath == "" {
-		for _, rc := range cfg.RuntimeClasses {
-			if !cfg.IsVMRootfsClass(rc) {
-				return nil, fmt.Errorf("config: nono_bin_path must not be empty when bind-mount delivery is used (handler %q is not in vm_rootfs_classes)", rc)
-			}
-		}
+		return nil, fmt.Errorf("config: nono_bin_path must not be empty")
 	}
 	// A relative NonoBinPath causes filepath.Dir to return "." which silently
 	// becomes the bind-mount source, mounting the plugin's cwd into containers.
-	if cfg.NonoBinPath != "" && !filepath.IsAbs(cfg.NonoBinPath) {
+	if !filepath.IsAbs(cfg.NonoBinPath) {
 		return nil, fmt.Errorf("config: nono_bin_path %q must be an absolute path", cfg.NonoBinPath)
 	}
 	switch cfg.SeccompProfile {

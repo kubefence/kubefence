@@ -58,13 +58,12 @@ NRI event
        │    true  ↓
        ├─ ResolveProfile(pod, cfg)         pod annotation "nono.sh/profile" or cfg.DefaultProfile
        ├─ BuildSeccompPolicy(cfg.SeccompProfile) → *LinuxSeccomp (nil when disabled)
-       ├─ BuildAdjustment(ctr, profile, cfg.NonoBinPath, isVMRootfs, seccomp)
+       ├─ BuildAdjustment(ctr, profile, cfg.NonoBinPath, seccomp)
        │    SetArgs: [/nono/nono, wrap, --profile, <profile>, --, <original args...>]
        │    AddMount: host dir of NonoBinPath → /nono  (bind, ro, rprivate)
        │    SetLinuxSeccompPolicy: applied when seccomp != nil
-       │    NOTE: isVMRootfs is currently a no-op — the bind-mount is always
-       │    added regardless of vm_rootfs_classes membership (reserved for
-       │    future use; for Kata the mount works via virtiofs either way)
+       │    NOTE: the bind-mount is unconditional — for Kata it is served
+       │    over virtiofs, so one code path covers both runtimes
        ├─ WriteMetadata(pod.UID, ctr.ID, …)
        │    creates /var/run/nono-nri/<podUID>/<ctrID>/metadata.json
        └─ Log "injected" + return adjustment

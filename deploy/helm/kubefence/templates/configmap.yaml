@@ -11,7 +11,4 @@ data:
     default_profile = {{ .Values.config.defaultProfile | quote }}
     nono_bin_path = {{ .Values.config.nonoBinPath | quote }}
     socket_path = {{ .Values.config.socketPath | quote }}
-    {{- if .Values.config.vmRootfsClasses }}
-    vm_rootfs_classes = {{ .Values.config.vmRootfsClasses | toJson }}
-    {{- end }}
     seccomp_profile = {{ .Values.config.seccompProfile | quote }}

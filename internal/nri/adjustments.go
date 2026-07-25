@@ -45,10 +45,8 @@ const defaultContainerPATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:
 //     kata-agent enforces this policy inside the VM when disable_guest_seccomp
 //     is false in the QEMU config.
 //
-// vmRootfs is reserved for future use and has no effect on the adjustment.
-//
 // It is safe to call with a container that has nil or empty args.
-func BuildAdjustment(ctr *api.Container, profile, hostBinPath string, vmRootfs bool, seccomp *api.LinuxSeccomp) *api.ContainerAdjustment {
+func BuildAdjustment(ctr *api.Container, profile, hostBinPath string, seccomp *api.LinuxSeccomp) *api.ContainerAdjustment {
 	prefix := []string{ContainerNonoPath, "wrap", "--profile", profile, "--"}
 	orig := ctr.GetArgs()
 	newArgs := make([]string, 0, len(prefix)+len(orig))
