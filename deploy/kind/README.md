@@ -58,7 +58,8 @@ The deploy script performs these extra steps when `KATA=true`:
 
 1. **Installs Kata** via `helm install kata-deploy` (pinned to `KATA_VERSION=4.0.0`).
 2. **Expands `/dev/shm`** on the kind node to 16 GB (kata uses memory-backend-file for NUMA).
-3. **Patches the QEMU config** (`configuration-qemu.toml`):
+3. **Patches the QEMU config** (`configuration-qemu-runtime-rs.toml` — kata 4.0
+   defaults to the Rust runtime, whose configs sit under a `runtime-rs/` prefix):
    - Sets `machine_accelerators = "kernel_irqchip=split"` (required for nested-KVM with Kind).
    - Leaves `kernel` untouched — the stock kata kernel already has Landlock.
 4. **Installs the nono guest extension** (when `KATA_EXTENSION=true`, the default):
@@ -68,7 +69,7 @@ The deploy script performs these extra steps when `KATA=true`:
    `agent.config_file=/run/kata-extensions/nono/agent-config.toml` appended to
    `kernel_params` — and registers the `kata-nono-qemu` handler.
 5. **Applies `deploy/runtimeclass-kata.yaml`** — registers the `kata-nono-sandbox`
-   RuntimeClass (handler: `kata-qemu`).
+   RuntimeClass (handler: `kata-qemu-runtime-rs`).
 
 The nono binary is delivered to the Kata VM via a virtiofs bind-mount, exactly
 as for runc containers. The guest image itself is never modified: the hardened

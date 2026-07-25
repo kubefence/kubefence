@@ -112,7 +112,7 @@ run "kubectl config use-context kind-nono-containerd"
 comment "one node — containerd 2.2.1 with NRI support built in"
 run "kubectl get nodes -o wide"
 
-comment "RuntimeClass: kata-nono-sandbox routes pods to the kata-qemu OCI handler"
+comment "RuntimeClass: kata-nono-sandbox routes pods to the kata-qemu-runtime-rs OCI handler"
 run "kubectl describe runtimeclass kata-nono-sandbox"
 
 comment "containerd config: NRI plugin subsystem enabled at /var/run/nri/nri.sock"

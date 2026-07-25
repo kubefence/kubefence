@@ -41,7 +41,7 @@ runtimeClasses:
     enabled: true
   kataNono:
     enabled: false
-    handler: "kata-qemu"
+    handler: "kata-qemu-runtime-rs"
 
 # DaemonSet tolerations
 tolerations:
@@ -113,7 +113,9 @@ kata:
   shareDir: /opt/kata/share/kata-containers
 
   # Path to the kata QEMU configuration file written by kata-deploy.
-  qemuConfigPath: /opt/kata/share/defaults/kata-containers/runtimes/qemu/configuration-qemu.toml
+  # runtime-rs configs live under a runtime-rs/ prefix; the Go runtime's sit at
+  # share/defaults/kata-containers/runtimes/qemu/configuration-qemu.toml.
+  qemuConfigPath: /opt/kata/share/defaults/kata-containers/runtime-rs/runtimes/qemu-runtime-rs/configuration-qemu-runtime-rs.toml
 
   qemu:
     # Additional machine accelerators for the QEMU hypervisor.

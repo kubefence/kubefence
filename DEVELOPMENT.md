@@ -126,7 +126,7 @@ internal/nri/
 internal/log/          # slog JSON handler factory
 deploy/
   daemonset.yaml       # Kubernetes DaemonSet (plugin + init container)
-  runtimeclass-kata.yaml  # RuntimeClass: kata-nono-sandbox / handler: kata-qemu
+  runtimeclass-kata.yaml  # RuntimeClass: kata-nono-sandbox / handler: kata-qemu-runtime-rs
   test-pod.yaml        # Sample sandboxed pod for verification
   crio-nri.conf        # CRI-O NRI config snippet
   containerd-config.toml  # containerd NRI config snippet

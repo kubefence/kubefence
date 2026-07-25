@@ -5,32 +5,28 @@
 #
 # kata-deploy DaemonSet will:
 #   1. Copy kata binaries to /opt/kata/bin/ on the node
-#   2. Patch /etc/containerd/config.toml to register the kata-qemu runtime
-#   3. Create the kata-qemu RuntimeClass
+#   2. Patch /etc/containerd/config.toml to register the kata-qemu-runtime-rs runtime
+#   3. Create the kata-qemu-runtime-rs RuntimeClass
 k8sDistribution: k8s
 
+# Kata 4.0 made the Rust runtime ("qemu-runtime-rs") the default on every arch
+# that ships a runtime-rs build, and considers the Go runtime feature-frozen
+# (see kata's docs/migrating-config-go-runtime-to-runtime-rs.md). We follow that
+# default: runtime-rs supports guest_extension_images, which is how the hardened
+# kata-agent policy reaches the guest.
 shims:
   disableAll: true
-  qemu:
+  qemu-runtime-rs:
     enabled: true
 
-# Kata 4.0 made the Rust runtime ("qemu-runtime-rs") the default shim on every
-# arch that ships a runtime-rs build. We enable only the Go "qemu" shim above, so
-# the chart's default would fail validation:
-#
-#   Error: DEFAULT_SHIM 'qemu-runtime-rs' must be one of the configured SHIMS
-#          for this architecture: [qemu]
-#
-# Pin the default to the shim we actually enable. Note kata considers the Go
-# runtime feature-frozen (see kata's
-# docs/migrating-config-go-runtime-to-runtime-rs.md); runtime-rs supports
-# guest_extension_images too, so switching is possible but is a separate
-# migration — it changes the config filename, the containerd runtime_type, and
-# needs the nono bind-mount and guest seccomp paths re-verified.
+# Must name a shim enabled above, or kata-deploy refuses to start:
+#   Error: DEFAULT_SHIM '<x>' must be one of the configured SHIMS
+#          for this architecture: [...]
+# ppc64le ships no runtime-rs build, so it stays on the Go runtime.
 defaultShim:
-  amd64: qemu
-  arm64: qemu
-  s390x: qemu
+  amd64: qemu-runtime-rs
+  arm64: qemu-runtime-rs
+  s390x: qemu-runtime-rs
   ppc64le: qemu
 
 # Let kata-deploy manage RuntimeClass creation.

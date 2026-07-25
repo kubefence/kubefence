@@ -95,8 +95,8 @@ spec:
               echo "Set machine_accelerators in ${KATA_CFG}."
               {{- end }}
 
-              # ── Create kata-nono-qemu config: qemu + the nono extension ────
-              # Inherits everything from configuration-qemu.toml, including the
+              # ── Create kata-nono-qemu config: base + the nono extension ────
+              # Inherits everything from the base runtime-rs config, including the
               # stock guest image and kernel, which are left untouched.
               cp "${KATA_CFG}" "${KATA_CFG_NONO}"
 
@@ -164,8 +164,8 @@ spec:
                 cat >> "${CONTAINERD_CFG}" << TOMLEOF
 
               [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kata-nono-qemu]
-                runtime_type = "io.containerd.kata-qemu.v2"
-                runtime_path = "/opt/kata/bin/containerd-shim-kata-v2"
+                runtime_type = "io.containerd.kata-qemu-runtime-rs.v2"
+                runtime_path = "/opt/kata/runtime-rs/bin/containerd-shim-kata-v2"
                 privileged_without_host_devices = true
                 pod_annotations = ["io.katacontainers.*"]
                 [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kata-nono-qemu.options]

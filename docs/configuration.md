@@ -33,7 +33,7 @@ These values are rendered into the TOML config file loaded by the plugin.
 |-------|---------|-------------|
 | `runtimeClasses.nonoRunc.enabled` | `true` | Create the `nono-runc` RuntimeClass (handler: `nono-runc`) |
 | `runtimeClasses.kataNono.enabled` | `false` | Create the `kata-nono-sandbox` RuntimeClass |
-| `runtimeClasses.kataNono.handler` | `"kata-qemu"` | Handler name for the Kata RuntimeClass. Must match a handler registered by kata-deploy |
+| `runtimeClasses.kataNono.handler` | `"kata-qemu-runtime-rs"` | Handler name for the Kata RuntimeClass. Must match a handler registered by kata-deploy |
 
 ### Kata Containers provisioning
 
@@ -42,7 +42,7 @@ These values are rendered into the TOML config file loaded by the plugin.
 | `kata.enabled` | `false` | Enable the kata-setup DaemonSet. Requires kata-deploy to be installed first |
 | `kata.extensionImage` | `ghcr.io/kubefence/kata-nono-extension:latest` | OCI image carrying the nono guest extension (hardened kata-agent policy). Pin to an immutable digest in production |
 | `kata.shareDir` | `/opt/kata/share/kata-containers` | Directory where kata-deploy installs kata share files on each node |
-| `kata.qemuConfigPath` | `/opt/kata/share/defaults/kata-containers/runtimes/qemu/configuration-qemu.toml` | Path to the kata QEMU configuration file written by kata-deploy |
+| `kata.qemuConfigPath` | `/opt/kata/share/defaults/kata-containers/runtime-rs/runtimes/qemu-runtime-rs/configuration-qemu-runtime-rs.toml` | Path to the kata QEMU configuration file written by kata-deploy. runtime-rs configs sit under a `runtime-rs/` prefix |
 | `kata.qemu.machineAccelerators` | `""` | Additional QEMU machine accelerators. Set to `"kernel_irqchip=split"` for nested-KVM environments (e.g. Kind clusters) |
 | `kata.qemu.seccompSandbox` | `"on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny"` | QEMU process-level seccomp sandbox (host kernel). Restricts syscalls available to the QEMU hypervisor process. `spawn=deny` prevents QEMU from exec'ing host binaries after a VM escape. Set to `""` to disable |
 | `kata.qemu.disableGuestSeccomp` | `false` | Maps to `disable_guest_seccomp` in the kata QEMU config. `false` enables the kata-agent to apply the container's OCI seccomp profile (written by the NRI plugin) inside the guest VM |

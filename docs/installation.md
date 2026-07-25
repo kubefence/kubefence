@@ -57,7 +57,7 @@ helm upgrade --install kubefence \
   --set kata.enabled=true \
   --set runtimeClasses.kataNono.enabled=true \
   --set runtimeClasses.kataNono.handler=kata-nono-qemu \
-  --set "config.runtimeClasses={nono-runc,kata-qemu,kata-nono-qemu}" \
+  --set "config.runtimeClasses={nono-runc,kata-qemu-runtime-rs,kata-nono-qemu}" \
   --wait
 ```
 

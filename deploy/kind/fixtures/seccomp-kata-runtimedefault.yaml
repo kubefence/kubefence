@@ -1,4 +1,4 @@
-# Generic kata-qemu pod with Kubernetes RuntimeDefault seccomp applied directly
+# Generic kata-qemu-runtime-rs pod with Kubernetes RuntimeDefault seccomp applied directly
 # in the pod spec — no nono-nri involvement.
 # kata-agent enforces the OCI seccomp policy inside the VM
 # (requires disable_guest_seccomp = false in configuration-qemu.toml).
@@ -24,7 +24,7 @@ metadata:
   name: seccomp-kata-runtimedefault
   namespace: default
 spec:
-  runtimeClassName: kata-qemu
+  runtimeClassName: kata-qemu-runtime-rs
   restartPolicy: Never
   securityContext:
     seccompProfile:
@@ -35,4 +35,4 @@ spec:
       imagePullPolicy: IfNotPresent
       env:
         - name: SECCOMP_PROFILE
-          value: "RuntimeDefault (pod spec, no nono, kata-qemu)"
+          value: "RuntimeDefault (pod spec, no nono, kata-qemu-runtime-rs)"

@@ -37,7 +37,7 @@ deploy/kind/deploy.sh             Kind cluster + plugin deploy automation
 deploy/kind/e2e.sh                E2E test suite (17 checks)
 deploy/kind/cluster-containerd.yaml   Kind cluster config with NRI enabled
 deploy/daemonset.yaml             DaemonSet manifest (init + main containers)
-deploy/runtimeclass-kata.yaml     kata-nono-sandbox RuntimeClass (handler: kata-qemu)
+deploy/runtimeclass-kata.yaml     kata-nono-sandbox RuntimeClass (handler: kata-qemu-runtime-rs)
 deploy/10-nono-nri.toml.example   Annotated TOML config reference
 Dockerfile                        Multi-stage: golang:1.24-alpine builder → alpine:3.20
 .github/workflows/release.yaml    CI: builds static nono from source, builds + pushes to ghcr.io
@@ -331,7 +331,7 @@ The NRI socket mount is read-only because the plugin connects *to* containerd
 
 ## Kata Containers specifics
 
-- RuntimeClass `kata-nono-sandbox` → handler `kata-qemu` → nono injected via
+- RuntimeClass `kata-nono-sandbox` → handler `kata-qemu-runtime-rs` → nono injected via
   virtiofs bind-mount (same bind-mount mechanism, virtiofsd makes host path
   visible inside the QEMU VM).
 - The `kata-nono-qemu` handler adds the hardened kata-agent OPA policy on top,

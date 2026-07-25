@@ -2,7 +2,7 @@
 # record-demo.sh — asciinema recording script for nono + Kata Containers demo
 #
 # Shows:
-#   - kata-nono-sandbox RuntimeClass (handler: kata-qemu)
+#   - kata-nono-sandbox RuntimeClass (handler: kata-qemu-runtime-rs)
 #   - Pod runs inside a real QEMU/KVM micro-VM (/proc/cmdline proves it)
 #   - /bin/bash is the nono wrapper → exec auto-sandboxes inside the VM
 #   - Landlock blocks attacks; plain pod has full access
@@ -95,7 +95,7 @@ sleep 3
 section "1 · RuntimeClasses"
 # ══════════════════════════════════════════════════════════════════════════════
 
-comment "kata-nono-sandbox = Kata QEMU/KVM VM  +  nono Landlock (handler: kata-qemu)"
+comment "kata-nono-sandbox = Kata QEMU/KVM VM  +  nono Landlock (handler: kata-qemu-runtime-rs)"
 run "kubectl get runtimeclasses"
 
 # ══════════════════════════════════════════════════════════════════════════════

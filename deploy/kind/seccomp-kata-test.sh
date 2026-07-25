@@ -2,7 +2,7 @@
 # seccomp-kata-test.sh — verify seccomp enforcement across two kata runtimeclasses
 #
 # Deploys two pods:
-#   kata-actor-generic  — kata-qemu RuntimeClass (plain kata, no nono injection)
+#   kata-actor-generic  — kata-qemu-runtime-rs RuntimeClass (plain kata, no nono injection)
 #                         Expected: dangerous syscalls ALLOWED (no seccomp filter)
 #   kata-actor-nono     — kata-nono-sandbox RuntimeClass (kata-nono-qemu handler)
 #                         Expected: dangerous syscalls BLOCKED (restricted seccomp)
@@ -33,7 +33,7 @@ kc() { kubectl --context "$CONTEXT" "$@"; }
 
 # ── Preflight checks ──────────────────────────────────────────────────────────
 echo "==> Checking runtimeclasses..."
-for rc in kata-qemu kata-nono-sandbox; do
+for rc in kata-qemu-runtime-rs kata-nono-sandbox; do
     if ! kc get runtimeclass "$rc" &>/dev/null; then
         echo "ERROR: RuntimeClass '$rc' not found — run deploy.sh first"
         exit 1
@@ -87,7 +87,7 @@ kc delete pod kata-actor-generic kata-actor-nono \
 
 # ── Deploy pods ───────────────────────────────────────────────────────────────
 echo ""
-echo "==> Deploying kata-actor-generic (kata-qemu — no nono injection, no seccomp)..."
+echo "==> Deploying kata-actor-generic (kata-qemu-runtime-rs — no nono injection, no seccomp)..."
 kc apply -f - &>/dev/null <<EOF
 apiVersion: v1
 kind: Pod
@@ -95,7 +95,7 @@ metadata:
   name: kata-actor-generic
   namespace: ${NAMESPACE}
 spec:
-  runtimeClassName: kata-qemu
+  runtimeClassName: kata-qemu-runtime-rs
   restartPolicy: Never
   containers:
     - name: actor
@@ -103,7 +103,7 @@ spec:
       imagePullPolicy: IfNotPresent
       env:
         - name: SECCOMP_PROFILE
-          value: "none (generic kata-qemu, no nono injection)"
+          value: "none (generic kata-qemu-runtime-rs, no nono injection)"
 EOF
 
 echo "==> Deploying kata-actor-nono (kata-nono-sandbox — restricted seccomp via nono-nri)..."
@@ -157,7 +157,7 @@ bold " Kata seccomp comparison  [cluster: ${CLUSTER_NAME}]"
 bold "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 echo ""
-bold "══ [1/2] kata-actor-generic  (kata-qemu — no seccomp, all syscalls ALLOWED) ══"
+bold "══ [1/2] kata-actor-generic  (kata-qemu-runtime-rs — no seccomp, all syscalls ALLOWED) ══"
 echo ""
 kc logs kata-actor-generic
 

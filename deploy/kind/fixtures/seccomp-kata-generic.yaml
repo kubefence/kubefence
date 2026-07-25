@@ -1,5 +1,5 @@
-# Baseline: plain kata-qemu pod with no seccomp profile.
-# nono-nri does not watch the kata-qemu handler, so no injection occurs.
+# Baseline: plain kata-qemu-runtime-rs pod with no seccomp profile.
+# nono-nri does not watch the kata-qemu-runtime-rs handler, so no injection occurs.
 # Expected output: all dangerous syscalls ALLOWED.
 #
 # Prerequisites:
@@ -17,7 +17,7 @@ metadata:
   name: seccomp-kata-generic
   namespace: default
 spec:
-  runtimeClassName: kata-qemu
+  runtimeClassName: kata-qemu-runtime-rs
   restartPolicy: Never
   containers:
     - name: actor
@@ -25,4 +25,4 @@ spec:
       imagePullPolicy: IfNotPresent
       env:
         - name: SECCOMP_PROFILE
-          value: "none (generic kata-qemu, no seccomp)"
+          value: "none (generic kata-qemu-runtime-rs, no seccomp)"

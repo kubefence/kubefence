@@ -217,13 +217,46 @@ if [[ "$KATA" == "true" ]]; then
   #    The Docker default is 64 MB; 2 GB+ needed for kata VM memory.
   docker exec "$NODE" mount -o remount,size=16g /dev/shm
 
+  # 1b. Install dbus in the node — required by runtime-rs (the kata 4.0 default
+  #     shim). It picks its cgroup manager from the shape of the cgroup path
+  #     containerd hands it (resource/src/cgroups/resource_inner.rs:
+  #     is_systemd_cgroup), and kind's kubelet uses cgroupDriver: systemd, so the
+  #     path is a systemd slice and runtime-rs talks to systemd over dbus. kind
+  #     node images run systemd but ship no dbus at all, so sandbox creation dies
+  #     with:
+  #       add runtime to sandbox cgroup
+  #       systemd dbus error: I/O error: No such file or directory (os error 2)
+  #     Real nodes have dbus, so this is a kind-fidelity gap, not a kata bug —
+  #     which is why it is fixed here and not in the Helm chart.
+  echo "==> Installing dbus in the node (required by runtime-rs cgroup setup)..."
+  docker exec "$NODE" sh -c '
+    if [ -S /run/dbus/system_bus_socket ]; then
+      echo "    dbus already running."
+    else
+      apt-get update -qq >/dev/null 2>&1
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq dbus >/dev/null 2>&1
+      systemctl start dbus
+      for _i in $(seq 1 30); do
+        [ -S /run/dbus/system_bus_socket ] && break
+        sleep 1
+      done
+      if [ -S /run/dbus/system_bus_socket ]; then
+        echo "    dbus started."
+      else
+        echo "ERROR: dbus socket never appeared; runtime-rs sandboxes will fail" >&2
+        exit 1
+      fi
+    fi
+  '
+
   # 2. The kata-bundled guest kernel already has CONFIG_SECURITY_LANDLOCK=y from
   #    kata 4.0 onward (tools/packaging/kernel/configs/fragments/common/landlock.conf
   #    is applied to every kata kernel build), so the stock kernel and initrd are
   #    used unchanged — no custom kernel to build, pull or patch in.
 
   KATA_SHARE="/opt/kata/share/kata-containers"
-  KATA_CFG="/opt/kata/share/defaults/kata-containers/runtimes/qemu/configuration-qemu.toml"
+  # runtime-rs configs live under a runtime-rs/ prefix, unlike the Go runtime's.
+  KATA_CFG="/opt/kata/share/defaults/kata-containers/runtime-rs/runtimes/qemu-runtime-rs/configuration-qemu-runtime-rs.toml"
 
   # Wait for the QEMU config file to appear. kata-deploy writes it asynchronously:
   # `kubectl rollout status` returns once the pod is Ready, but the pod re-execs
@@ -337,7 +370,7 @@ EOF
       docker exec "$NODE" sh -c "
         cat > /etc/crio/crio.conf.d/98-kata-nono-qemu.conf <<'EOF'
 [crio.runtime.runtimes.kata-nono-qemu]
-runtime_path = \"/opt/kata/bin/containerd-shim-kata-v2\"
+runtime_path = \"/opt/kata/runtime-rs/bin/containerd-shim-kata-v2\"
 runtime_type = \"vm\"
 runtime_root = \"/run/vc\"
 runtime_config_path = \"${KATA_CFG_NONO}\"
@@ -352,8 +385,8 @@ EOF
         cat >> /etc/containerd/config.toml << 'CONTAINERD_EOF'
 
 [plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.kata-nono-qemu]
-  runtime_type = \"io.containerd.kata-qemu.v2\"
-  runtime_path = \"/opt/kata/bin/containerd-shim-kata-v2\"
+  runtime_type = \"io.containerd.kata-qemu-runtime-rs.v2\"
+  runtime_path = \"/opt/kata/runtime-rs/bin/containerd-shim-kata-v2\"
   privileged_without_host_devices = true
   pod_annotations = [\"io.katacontainers.*\"]
   [plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.kata-nono-qemu.options]
@@ -404,13 +437,13 @@ HELM_SET_ARGS=(
 
 if [[ "$KATA" == "true" && "$KATA_EXTENSION" == "true" ]]; then
   HELM_SET_ARGS+=(
-    --set "config.runtimeClasses={nono-runc,kata-qemu,kata-nono-qemu}"
+    --set "config.runtimeClasses={nono-runc,kata-qemu-runtime-rs,kata-nono-qemu}"
     --set "runtimeClasses.kataNono.handler=kata-nono-qemu"
   )
 elif [[ "$KATA" == "true" ]]; then
   HELM_SET_ARGS+=(
-    --set "config.runtimeClasses={nono-runc,kata-qemu}"
-    --set "runtimeClasses.kataNono.handler=kata-qemu"
+    --set "config.runtimeClasses={nono-runc,kata-qemu-runtime-rs}"
+    --set "runtimeClasses.kataNono.handler=kata-qemu-runtime-rs"
   )
 fi
 
