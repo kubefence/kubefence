@@ -355,15 +355,30 @@ EOF
   require "kata+nono pod becomes Running" \
     kubectl wait --for=condition=ready pod/nono-e2e-kata --timeout=120s
 
-  # nono wraps the command — PID 1 in the guest should be nono (or sleep after exec)
-  KATA_CMDLINE=$(kubectl exec nono-e2e-kata -- \
-    cat /proc/1/cmdline 2>/dev/null | tr '\0' ' ' || echo "")
-  check_contains "/proc/1/cmdline shows original command inside VM" \
-    "$KATA_CMDLINE" "sleep"
+  # The kata-nono-qemu handler loads the hardened kata-agent policy, whose
+  # ExecProcessRequest rule admits nothing but "/nono/nono wrap --profile <p> -- …".
+  # Every assertion below must therefore route through the wrapper: a bare
+  # `kubectl exec` is denied by design ("ExecProcessRequest is blocked by policy").
+  # That denial is itself covered by Test 7.
+  check "/nono/nono is accessible inside Kata VM (via nono wrap)" \
+    kubectl exec nono-e2e-kata -- /nono/nono wrap --profile default -- test -x /nono/nono
 
-  # /nono/nono must be accessible inside the guest (virtiofs bind-mount)
-  check "/nono/nono is accessible inside Kata VM" \
-    kubectl exec nono-e2e-kata -- test -x /nono/nono
+  # PID 1's cmdline cannot be read from inside: nono's own Landlock sandbox scopes
+  # /proc away from the wrapped process. Assert SetArgs on the host-side OCI bundle
+  # instead, which is where the wrapping is actually applied.
+  KATA_CTR_ID=$(kubectl get pod nono-e2e-kata \
+    -o jsonpath='{.status.containerStatuses[0].containerID}' 2>/dev/null |
+    sed 's|cri-o://||g' | sed 's|containerd://||g' | tr -d '[:space:]')
+  if [[ -n "$KATA_CTR_ID" && "$RUNTIME" == "containerd" ]]; then
+    KATA_BUNDLE="/run/containerd/io.containerd.runtime.v2.task/k8s.io/${KATA_CTR_ID}/config.json"
+    KATA_OCI_ARGS=$(_jq_or_python "$NODE" "$KATA_BUNDLE" \
+      '.process.args | join(" ")' \
+      "import json; d=json.load(open('${KATA_BUNDLE}')); print(' '.join(d['process']['args']))")
+    check_contains "kata OCI bundle wraps original command (SetArgs applied)" \
+      "$KATA_OCI_ARGS" "/nono/nono wrap --profile default -- sleep"
+  else
+    pass "kata OCI bundle wraps original command (skipped — no container id / non-containerd)"
+  fi
 
   PLUGIN_LOGS3=$(kubectl logs -n kube-system "$PLUGIN_POD" 2>/dev/null || echo "")
   check_contains "plugin logged injection for kata pod" \
@@ -405,19 +420,20 @@ EOF
   require "kata-nono-sandbox pod becomes Running" \
     kubectl wait --for=condition=ready pod/nono-e2e-kata-qemu --timeout=120s
 
-  # PID 1 should be sleep — nono wraps it via SetArgs then exec's into it.
-  KATA_QEMU_CMDLINE=$(kubectl exec nono-e2e-kata-qemu -- \
-    cat /proc/1/cmdline 2>/dev/null | tr '\0' ' ' || echo "")
-  check_contains "/proc/1/cmdline shows original command" \
-    "$KATA_QEMU_CMDLINE" "sleep"
-
-  # nono lives in the VM rootfs (not injected via virtiofs bind-mount).
-  check "/nono/nono exists in VM rootfs" \
-    kubectl exec nono-e2e-kata-qemu -- test -x /nono/nono
+  # As in Test 5, the agent policy on this handler permits only wrapped execs.
+  # nono is delivered by the host bind-mount (virtiofs), not by the guest image —
+  # the guest image is used unmodified and carries no nono.
+  check "/nono/nono is accessible via virtiofs bind-mount (via nono wrap)" \
+    kubectl exec nono-e2e-kata-qemu -- /nono/nono wrap --profile default -- test -x /nono/nono
 
   # NONO_PROFILE is injected by the NRI plugin for wrapper script use.
-  check "NONO_PROFILE env var injected" \
-    kubectl exec nono-e2e-kata-qemu -- sh -c 'test -n "${NONO_PROFILE}"'
+  # printenv, not `sh -c`: PATH puts /nono first, so a bare `sh` resolves to the
+  # /nono/sh wrapper, and re-entering nono from inside an active sandbox is denied
+  # ("Permission denied (os error 13)"). printenv is invoked by absolute resolution
+  # from the image and asserts the value rather than mere non-emptiness.
+  KATA_QEMU_PROFILE=$(kubectl exec nono-e2e-kata-qemu -- \
+    /nono/nono wrap --profile default -- printenv NONO_PROFILE 2>/dev/null || echo "")
+  check_contains "NONO_PROFILE env var injected" "$KATA_QEMU_PROFILE" "default"
 
   PLUGIN_LOGS4=$(kubectl logs -n kube-system "$PLUGIN_POD" 2>/dev/null || echo "")
   check_contains "plugin logged injection for kata-nono-qemu pod" \
