@@ -225,15 +225,26 @@ if [[ "$KATA" == "true" ]]; then
   KATA_SHARE="/opt/kata/share/kata-containers"
   KATA_CFG="/opt/kata/share/defaults/kata-containers/runtimes/qemu/configuration-qemu.toml"
 
-  # Wait for the QEMU config file to appear (kata-deploy writes it asynchronously).
-  echo "==> Waiting for kata QEMU config file..."
-  for _i in $(seq 1 120); do
+  # Wait for the QEMU config file to appear. kata-deploy writes it asynchronously:
+  # `kubectl rollout status` returns once the pod is Ready, but the pod re-execs
+  # into a post-install waiter and its readiness does not mean the node files are
+  # complete. On kata 4.0 the install takes ~3.5 min (it also sets up the erofs /
+  # nydus snapshotter and waits for the node label to stabilise), so poll well past
+  # that — the whole deploy fails if we give up early.
+  _CFG_WAIT=420
+  echo "==> Waiting for kata QEMU config file (up to ${_CFG_WAIT}s)..."
+  for _i in $(seq 1 "${_CFG_WAIT}"); do
     docker exec "$NODE" test -f "${KATA_CFG}" 2>/dev/null && break
-    [[ $((_i % 15)) -eq 0 ]] && echo "    Still waiting for ${KATA_CFG}... (${_i}s)"
+    [[ $((_i % 30)) -eq 0 ]] && echo "    Still waiting for ${KATA_CFG}... (${_i}s)"
     sleep 1
   done
   if ! docker exec "$NODE" test -f "${KATA_CFG}" 2>/dev/null; then
-    echo "ERROR: kata QEMU config not found at ${KATA_CFG} after 120 s"
+    echo "ERROR: kata QEMU config not found at ${KATA_CFG} after ${_CFG_WAIT} s"
+    echo "  kata-deploy pod status:"
+    kubectl get pods -n kube-system -l name=kata-deploy -o wide 2>/dev/null || true
+    echo "  kata-deploy logs (tail):"
+    kubectl logs -n kube-system -l name=kata-deploy --tail=30 2>/dev/null || true
+    echo "  configs present on node:"
     docker exec "$NODE" find /opt/kata/share/defaults -name '*.toml' 2>/dev/null || true
     exit 1
   fi
