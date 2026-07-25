@@ -338,12 +338,11 @@ The NRI socket mount is read-only because the plugin connects *to* containerd
 - Kata with nested KVM in kind requires:
   - `/dev/shm` remounted to ≥16 GB (NUMA memory backend)
   - `machine_accelerators = "kernel_irqchip=split"` in QEMU config
-  - Custom kata guest kernel with `CONFIG_SECURITY_LANDLOCK=y` — built by
-    `.github/workflows/kata-kernel.yaml` and published to GHCR as
-    `ghcr.io/<owner>/kata-kernel-landlock:<kata-version>`; deploy.sh pulls
-    and deploys it automatically (uses cached `/tmp/kata-vmlinux-landlock-*.elf`)
-  - Kata's original initrd is used unchanged (virtiofs and vsock are `=y` in
-    the kata kernel config, so no custom initrd or insmod wrapper is needed)
+  - Stock kata guest kernel and initrd — kata >= 4.0 builds every guest kernel
+    with `CONFIG_SECURITY_LANDLOCK=y` via
+    `tools/packaging/kernel/configs/fragments/common/landlock.conf`, which
+    `build-kernel.sh` applies to all builds. Nothing in this repo builds,
+    pulls or patches a guest kernel.
 
 ---
 

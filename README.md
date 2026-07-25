@@ -105,7 +105,6 @@ Published images (built by CI on every release):
 | Image | Contents |
 |-------|----------|
 | `ghcr.io/kubefence/nono-nri-plugin:latest` | NRI plugin (`10-nono-nri`) + `nono` sandbox binary |
-| `ghcr.io/kubefence/kata-kernel-landlock:latest` | Kata guest kernel with `CONFIG_SECURITY_LANDLOCK=y` |
 | `ghcr.io/kubefence/kata-rootfs-nono:latest` | Kata rootfs with `nono` binary pre-installed |
 | `ghcr.io/kubefence/charts/kubefence:latest` | Helm charts for deployment |
 
@@ -163,11 +162,8 @@ helm upgrade --install kubefence \
 ```
 
 The `kata-setup` DaemonSet will:
-- Pull `ghcr.io/kubefence/kata-kernel-landlock:latest` and install the
-  Landlock-enabled `vmlinux` onto each node
 - Pull `ghcr.io/kubefence/kata-rootfs-nono:latest` and install the
   Kata rootfs (with `nono` pre-installed) onto each node
-- Patch the kata QEMU config to use the Landlock kernel
 - Create `configuration-kata-nono-qemu.toml` referencing the nono rootfs
 - Register the `kata-nono-qemu` runtime handler in containerd
 

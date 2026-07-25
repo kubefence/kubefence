@@ -87,23 +87,23 @@ nodeSetup:
 
 # Kata Containers node provisioning.
 # When enabled, a privileged DaemonSet (daemonset-kata-setup) installs the
-# Landlock-enabled kata kernel and nono-embedded rootfs onto each cluster node
-# and configures the kata-nono-qemu containerd runtime handler.
+# nono-embedded rootfs onto each cluster node and configures the kata-nono-qemu
+# containerd runtime handler.
+#
+# The guest kernel is used exactly as kata-deploy ships it: kata >= 4.0 builds
+# every guest kernel with CONFIG_SECURITY_LANDLOCK=y, so there is no custom
+# kernel to install.
 #
 # Prerequisites:
+#   - kata-containers >= 4.0
 #   - kata-deploy must be installed and its DaemonSet must be fully rolled out
 #     before nono-nri is installed (the setup DaemonSet waits for the kata QEMU
 #     config file to appear before proceeding).
 #
 # Images are published by the GHA workflows on every nono-nri release:
-#   kata.kernelImage: ghcr.io/kubefence/kata-kernel-landlock:<kata-version>
 #   kata.rootfsImage: ghcr.io/kubefence/kata-rootfs-nono:<kata-version>-<nono-version>
 kata:
   enabled: false
-
-  # OCI image carrying /vmlinux — built by .github/workflows/kata-kernel.yaml.
-  # Pin to an immutable digest in production: ghcr.io/kubefence/kata-kernel-landlock:4.0.0@sha256:<digest>
-  kernelImage: ghcr.io/kubefence/kata-kernel-landlock:4.0.0
 
   # OCI image carrying /kata-containers-confidential.image — built by kata-rootfs.yaml.
   # Pin to an immutable digest in production: ghcr.io/kubefence/kata-rootfs-nono:4.0.0-v0.23.0@sha256:<digest>

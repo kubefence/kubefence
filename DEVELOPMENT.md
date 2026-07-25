@@ -27,9 +27,9 @@ make docker-build    # outputs nono-nri:latest
 ## Quick Start with Kind
 
 Requires a host with KVM support. `KATA=true` and `KATA_ROOTFS=true` are the
-defaults — the deploy script installs Kata via helm, patches the QEMU config with
-a Landlock-enabled kernel, embeds nono in the guest VM image, and registers the
-`kata-nono-sandbox` RuntimeClass automatically.
+defaults — the deploy script installs Kata via helm, embeds nono in the guest VM
+image, and registers the `kata-nono-sandbox` RuntimeClass automatically. The
+guest kernel needs no patching: kata >= 4.0 enables Landlock by default.
 
 ```bash
 git clone https://github.com/kubefence/kubefence
@@ -138,7 +138,6 @@ deploy/
 |----------|---------|-----------|
 | `lint` | push / PR to main | — (gofmt, go vet, mod tidy, unit tests) |
 | `release` | GitHub release published | `ghcr.io/kubefence/nono-nri-plugin:<version>` |
-| `kata-kernel` | release + push (Dockerfile/workflow/landlock.conf) | `ghcr.io/kubefence/kata-kernel-landlock:<kata-version>` |
 | `kata-rootfs` | release + push (Dockerfile/inject.sh/policy.rego) | `ghcr.io/kubefence/kata-rootfs-nono:<kata-version>-<nono-version>` |
 | `helm-publish` | release + push (chart files) | `oci://ghcr.io/kubefence/charts/kubefence:<version>` |
 

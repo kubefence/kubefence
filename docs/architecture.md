@@ -95,9 +95,8 @@ kubefence deploys up to three DaemonSets depending on configuration:
 
 **kubefence-kata-setup** — privileged DaemonSet (only when `kata.enabled=true`) that:
 
-- Pulls and installs the custom Landlock-enabled vmlinux from `ghcr.io/kubefence/kata-kernel-landlock`
 - Pulls and installs the nono-embedded Kata rootfs from `ghcr.io/kubefence/kata-rootfs-nono`
-- Patches the kata QEMU configuration to use the Landlock kernel
+- Leaves the guest kernel as kata-deploy shipped it (kata >= 4.0 enables Landlock by default)
 - Creates the `kata-nono-qemu` containerd runtime handler
 
 **kubefence** — the NRI plugin DaemonSet that runs on every node and connects

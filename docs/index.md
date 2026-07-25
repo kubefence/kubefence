@@ -52,7 +52,6 @@ Published images built by CI on every release:
 | Image | Contents |
 |-------|----------|
 | `ghcr.io/kubefence/nono-nri-plugin:latest` | NRI plugin (`10-nono-nri`) + `nono` sandbox binary |
-| `ghcr.io/kubefence/kata-kernel-landlock:latest` | Kata guest kernel with `CONFIG_SECURITY_LANDLOCK=y` |
 | `ghcr.io/kubefence/kata-rootfs-nono:latest` | Kata rootfs with `nono` binary pre-installed |
 | `ghcr.io/kubefence/charts/kubefence:latest` | Helm chart for deployment |
 

@@ -63,11 +63,8 @@ helm upgrade --install kubefence \
 
 The `kata-setup` DaemonSet will:
 
-- Pull `ghcr.io/kubefence/kata-kernel-landlock:latest` and install the
-  Landlock-enabled `vmlinux` onto each node
 - Pull `ghcr.io/kubefence/kata-rootfs-nono:latest` and install the Kata rootfs
   (with `nono` pre-installed) onto each node
-- Patch the kata QEMU config to use the Landlock kernel
 - Create `configuration-kata-nono-qemu.toml` referencing the nono rootfs
 - Register the `kata-nono-qemu` runtime handler in containerd
 

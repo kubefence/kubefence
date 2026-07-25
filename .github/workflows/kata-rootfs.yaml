@@ -34,7 +34,7 @@ on:
       - "deploy/kind/kata-rootfs/policy.rego"
       - ".github/workflows/kata-rootfs.yaml"
 
-# Pinned versions — keep in sync with deploy/kind/deploy.sh and kata-kernel.yaml.
+# Pinned versions — keep in sync with deploy/kind/deploy.sh.
 env:
   KATA_VERSION: "4.0.0"
   NONO_VERSION: "v0.23.0"

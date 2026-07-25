@@ -11,7 +11,6 @@
 #   IMAGE           plugin image tag (default: nono-nri:latest)
 #   SKIP_BUILD      true to skip docker build and pull IMAGE from a registry instead
 #   KATA_VERSION    kata-containers release to install (default: 4.0.0)
-#   KATA_KERNEL_IMAGE  pre-built Landlock kernel image; derived from git remote if unset
 #   KATA_ROOTFS     true to deploy the custom confidential guest rootfs with nono pre-installed
 #                   (requires KATA=true; enables vm_rootfs_classes in plugin config)
 #   KATA_ROOTFS_IMAGE  pre-built rootfs image; derived from git remote if unset
@@ -26,12 +25,9 @@ CLUSTER_NAME="${CLUSTER_NAME:-nono-${RUNTIME}}"
 IMAGE="${IMAGE:-nono-nri:latest}"
 KATA="${KATA:-true}"             # set KATA=false to skip Kata Containers
 # Pinned kata-containers version. Keep in sync with KATA_VERSION in
-# .github/workflows/kata-kernel.yaml when upgrading kata.
+# .github/workflows/kata-rootfs.yaml when upgrading kata.
+# 4.0.0+ is required: earlier kata kernels are built without Landlock.
 KATA_VERSION="${KATA_VERSION:-4.0.0}"
-# Pre-built kata kernel image (published by the kata-kernel-landlock GHA workflow).
-# Derived from the git remote owner at runtime; override to use a custom build.
-#   KATA_KERNEL_IMAGE=ghcr.io/yourorg/kata-kernel-landlock:4.0.0
-KATA_KERNEL_IMAGE="${KATA_KERNEL_IMAGE:-}"
 # Custom confidential guest rootfs with nono pre-installed (published by kata-rootfs-nono GHA workflow).
 # Requires KATA=true. Enables vm_rootfs_classes for the kata-nono-qemu handler.
 KATA_ROOTFS="${KATA_ROOTFS:-true}"
@@ -221,115 +217,13 @@ if [[ "$KATA" == "true" ]]; then
   #    The Docker default is 64 MB; 2 GB+ needed for kata VM memory.
   docker exec "$NODE" mount -o remount,size=16g /dev/shm
 
-  # 2. Build the kata kernel with Landlock LSM enabled.
-  #    The kata-bundled kernel has CONFIG_SECURITY_LANDLOCK=n.  We rebuild from
-  #    kata's own kernel source + patches with Landlock added.  The kata-shipped
-  #    initrd works unchanged: virtiofs and vsock are built-in (=y) in the kata
-  #    kernel config, so no custom initrd or insmod wrapper is needed.
+  # 2. The kata-bundled guest kernel already has CONFIG_SECURITY_LANDLOCK=y from
+  #    kata 4.0 onward (tools/packaging/kernel/configs/fragments/common/landlock.conf
+  #    is applied to every kata kernel build), so the stock kernel and initrd are
+  #    used unchanged — no custom kernel to build, pull or patch in.
 
   KATA_SHARE="/opt/kata/share/kata-containers"
   KATA_CFG="/opt/kata/share/defaults/kata-containers/runtimes/qemu/configuration-qemu.toml"
-
-  # Detect the Linux version by finding the versioned qemu kernel file.
-  # kata-deploy ships several vmlinuz variants; filter out dragonball/nvidia-gpu
-  # and the unversioned .container symlinks — what remains is the qemu kernel
-  # (e.g. vmlinuz-6.18.15-186).  Polling the actual file (not a symlink) avoids
-  # readlink -f false-positives where it returns a dangling or missing path.
-  # Poll up to 300 s: kata-deploy pod readiness and host file creation are not atomic.
-  _KERN_FILE=""
-  for _i in $(seq 1 300); do
-    _KERN_FILE=$(docker exec "$NODE" sh -c "
-      ls '${KATA_SHARE}'/vmlinuz-* 2>/dev/null \
-        | grep -v dragonball | grep -v nvidia | grep -vE '\\.container$' \
-        | head -1" 2>/dev/null || true)
-    [[ -n "$_KERN_FILE" ]] && break
-    [[ $((_i % 30)) -eq 0 ]] && echo "    Still waiting for kata kernel files... (${_i}s)"
-    sleep 1
-  done
-  if [[ -z "$_KERN_FILE" ]]; then
-    echo "ERROR: kata qemu kernel not found in ${KATA_SHARE} after 300 s"
-    echo "  kata-deploy pod status:"
-    kubectl get pod -n kube-system -l app=kata-deploy -o wide 2>/dev/null || true
-    echo "  contents of ${KATA_SHARE}:"
-    docker exec "$NODE" ls "${KATA_SHARE}" 2>/dev/null || true
-    exit 1
-  fi
-  LINUX_VER=$(basename "${_KERN_FILE}" | sed 's/vmlinuz-//;s/-[0-9]*$//')
-  echo "    Kata Linux version: ${LINUX_VER}"
-
-  # Host-side cache: skip pull/build if the kernel was already fetched.
-  KATA_KERN_CACHE="/tmp/kata-vmlinux-landlock-${LINUX_VER}.elf"
-
-  if [ -f "${KATA_KERN_CACHE}" ]; then
-    echo "    Using cached Landlock kernel: ${KATA_KERN_CACHE}"
-  else
-    # Resolve the image name: derive owner from git remote if not overridden.
-    if [ -z "${KATA_KERNEL_IMAGE}" ]; then
-      _GH_OWNER=$(git -C "${SCRIPT_DIR}" remote get-url origin 2>/dev/null || true \
-        | sed -n 's|.*github\.com[:/]\([^/]*\)/.*|\1|p')
-      KATA_KERNEL_IMAGE="ghcr.io/${_GH_OWNER:-k8s-nono}/kata-kernel-landlock:${KATA_VERSION}"
-    fi
-    echo "    Kata kernel image: ${KATA_KERNEL_IMAGE}"
-
-    # Try pulling the pre-built image published by the kata-kernel-landlock GHA.
-    if docker pull "${KATA_KERNEL_IMAGE}" 2>/dev/null; then
-      _CTR=$(docker create "${KATA_KERNEL_IMAGE}")
-      docker cp "${_CTR}:/vmlinux" "${KATA_KERN_CACHE}"
-      docker rm "${_CTR}" >/dev/null
-      echo "    Kernel extracted from image."
-    else
-      # Fallback: build from kata source (used when the image hasn't been
-      # published yet, e.g. on first run before GHA has executed).
-      echo "    Pre-built image not available — building from source (~20-40 min)..."
-
-      sudo apt-get install -qq -y \
-        build-essential flex bison libssl-dev libelf-dev bc dwarves \
-        libncurses-dev rsync cpio curl 2>/dev/null || true
-
-      if ! command -v yq &>/dev/null; then
-        sudo wget -qO /usr/local/bin/yq \
-          "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64"
-        sudo chmod +x /usr/local/bin/yq
-      fi
-
-      KATA_BUILD_DIR=$(mktemp -d /tmp/kata-kern-XXXXXX)
-
-      git clone --quiet --depth 1 --filter=blob:none --sparse \
-        -b "${KATA_VERSION}" \
-        https://github.com/kata-containers/kata-containers \
-        "${KATA_BUILD_DIR}/kata-src"
-      (cd "${KATA_BUILD_DIR}/kata-src" && \
-        git sparse-checkout set tools/packaging/kernel tools/packaging/scripts && \
-        git show HEAD:versions.yaml > versions.yaml && \
-        git show HEAD:VERSION > VERSION)
-
-      KERN_PKG="${KATA_BUILD_DIR}/kata-src/tools/packaging/kernel"
-      (cd "${KERN_PKG}" && ARCH=x86_64 ./build-kernel.sh setup)
-
-      KERN_SRC=$(ls -d "${KERN_PKG}/kata-linux-"* 2>/dev/null | head -1)
-      [ -z "${KERN_SRC}" ] && { echo "ERROR: kernel source not found"; exit 1; }
-
-      (cd "${KERN_SRC}" && ./scripts/config --enable SECURITY_LANDLOCK)
-      CURRENT_LSM=$(cd "${KERN_SRC}" && ./scripts/config --state LSM 2>/dev/null | tr -d '"')
-      if [ -z "${CURRENT_LSM}" ]; then
-        (cd "${KERN_SRC}" && ./scripts/config --set-str LSM "landlock")
-      elif ! echo "${CURRENT_LSM}" | grep -q "landlock"; then
-        (cd "${KERN_SRC}" && ./scripts/config --set-str LSM "landlock,${CURRENT_LSM}")
-      fi
-      (cd "${KERN_SRC}" && make ARCH=x86_64 olddefconfig 2>/dev/null)
-      (cd "${KERN_SRC}" && make ARCH=x86_64 -j"$(nproc)" vmlinux)
-
-      cp "${KERN_SRC}/vmlinux" "${KATA_KERN_CACHE}"
-      rm -rf "${KATA_BUILD_DIR}"
-      echo "    Build complete."
-    fi
-  fi
-
-  # Deploy the Landlock-enabled vmlinux into the kata share.
-  KATA_LANDLOCK_KERNEL="${KATA_SHARE}/vmlinux-landlock.container"
-  docker cp "${KATA_KERN_CACHE}" "${NODE}:${KATA_LANDLOCK_KERNEL}"
-  docker exec "$NODE" chmod 644 "${KATA_LANDLOCK_KERNEL}"
-  echo "    Deployed: ${KATA_LANDLOCK_KERNEL}"
 
   # Wait for the QEMU config file to appear (kata-deploy writes it asynchronously).
   echo "==> Waiting for kata QEMU config file..."
@@ -344,19 +238,16 @@ if [[ "$KATA" == "true" ]]; then
     exit 1
   fi
 
-  # Patch kata QEMU config: new kernel path; leave initrd unchanged.
+  # Patch kata QEMU config for nested KVM; kernel and initrd stay as shipped.
   docker exec "$NODE" sh -c "
-  sed -i \
-    -e 's|^kernel = .*|kernel = \"${KATA_LANDLOCK_KERNEL}\"|' \
-    -e 's|^machine_accelerators = .*|machine_accelerators = \"kernel_irqchip=split\"|' \
-    ${KATA_CFG}
+    sed -i 's|^machine_accelerators = .*|machine_accelerators = \"kernel_irqchip=split\"|' '${KATA_CFG}'
   "
   # Add machine_accelerators if the line was absent in the default config.
   docker exec "$NODE" sh -c "
     grep -q '^machine_accelerators' '${KATA_CFG}' || \
       sed -i 's|\(\[hypervisor.qemu\]\)|\1\nmachine_accelerators = \"kernel_irqchip=split\"|' '${KATA_CFG}'
   "
-  echo "    Kata QEMU config patched (Landlock kernel, kata initrd, kernel_irqchip=split)."
+  echo "    Kata QEMU config patched (kernel_irqchip=split)."
 
   # ── kata-nono-qemu: custom rootfs with nono pre-installed ────────────────────
   if [[ "$KATA_ROOTFS" == "true" ]]; then

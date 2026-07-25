@@ -25,11 +25,11 @@ The default Kata Containers kernel (from `kata-deploy`) is built without
 the default kernel will fail — nono cannot apply Landlock restrictions and
 will exit with an error.
 
-The kubefence Helm chart (with `kata.enabled=true`) automatically installs
-a custom Landlock-enabled kernel on each node. The custom kernel image
-(`ghcr.io/kubefence/kata-kernel-landlock`) is built by the project's CI and
-published to GHCR. The kata-setup DaemonSet replaces the default vmlinux with
-the Landlock-enabled version without touching the kata initrd.
+Kata Containers 4.0 and later build every guest kernel with
+`CONFIG_SECURITY_LANDLOCK=y` (`tools/packaging/kernel/configs/fragments/common/landlock.conf`),
+so the kernel kata-deploy ships is used unchanged. Kata releases before 4.0 are
+not supported: their guest kernels have Landlock compiled out and nono cannot
+enforce anything inside the VM.
 
 ## /nono directory must not exist in container images
 

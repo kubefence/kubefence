@@ -76,8 +76,9 @@ is opt-in, not the other way around.
 - **e2tools must be available**: `debugfs` is from `e2fsprogs`; already in builder apt list.
 - **`sfdisk` availability**: `sfdisk` is in `fdisk` package on Ubuntu 24.04 — add to
   builder `apt-get install` list.
-- **Kata version pin**: `KATA_VERSION=4.0.0` is pinned across deploy.sh, kata-kernel.yaml,
-  kata-rootfs.yaml — keep in sync.
+- **Kata version pin**: `KATA_VERSION=4.0.0` is pinned across deploy.sh and
+  kata-rootfs.yaml — keep in sync. 4.0.0 is a hard minimum: earlier kata guest
+  kernels are built without Landlock.
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:codebase/STACK.md -->
@@ -114,7 +115,7 @@ is opt-in, not the other way around.
 - Flags at runtime:
 - `Dockerfile` - Multi-stage Alpine-based container build (1.24-alpine → alpine:3.20)
 - `Makefile` - Build targets: `build`, `test`, `docker-build`, `docker-load-kind`, `kind-*`
-- `.github/workflows/` - CI/CD via GitHub Actions (lint, release, kata-kernel, kata-rootfs)
+- `.github/workflows/` - CI/CD via GitHub Actions (lint, release, kata-rootfs)
 ## Platform Requirements
 - Go 1.24+ toolchain
 - Docker (for `make docker-build`, `make nono-build` with glibc)
@@ -125,8 +126,7 @@ is opt-in, not the other way around.
 - Linux kernel 5.13+ with Landlock LSM support
 - Read access to NRI socket (`/var/run/nri/nri.sock`)
 - Writable state directory (`/var/run/nono-nri` in DaemonSet)
-- Kata Containers 4.0.0+ with custom kernel including `CONFIG_SECURITY_LANDLOCK=y`
-- Pre-built kernel image from `ghcr.io/<owner>/kata-kernel-landlock:4.0.0`
+- Kata Containers 4.0.0+ (its stock guest kernel has `CONFIG_SECURITY_LANDLOCK=y`)
 - Custom Ubuntu rootfs image (KATA_ROOTFS mode)
 ## Standard Library Usage
 - `log/slog` - Structured logging with JSON or text output handlers
