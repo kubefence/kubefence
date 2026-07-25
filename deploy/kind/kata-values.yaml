@@ -14,6 +14,25 @@ shims:
   qemu:
     enabled: true
 
+# Kata 4.0 made the Rust runtime ("qemu-runtime-rs") the default shim on every
+# arch that ships a runtime-rs build. We enable only the Go "qemu" shim above, so
+# the chart's default would fail validation:
+#
+#   Error: DEFAULT_SHIM 'qemu-runtime-rs' must be one of the configured SHIMS
+#          for this architecture: [qemu]
+#
+# Pin the default to the shim we actually enable. Note kata considers the Go
+# runtime feature-frozen (see kata's
+# docs/migrating-config-go-runtime-to-runtime-rs.md); runtime-rs supports
+# guest_extension_images too, so switching is possible but is a separate
+# migration — it changes the config filename, the containerd runtime_type, and
+# needs the nono bind-mount and guest seccomp paths re-verified.
+defaultShim:
+  amd64: qemu
+  arm64: qemu
+  s390x: qemu
+  ppc64le: qemu
+
 # Let kata-deploy manage RuntimeClass creation.
 # We add a separate kata-nono-sandbox RC (same handler) in runtimeclass.yaml.
 runtimeClasses:
