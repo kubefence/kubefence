@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       kata_version:
-        description: "kata-containers release tag (e.g. 3.28.0). Defaults to KATA_VERSION below."
+        description: "kata-containers release tag (e.g. 4.0.0). Defaults to KATA_VERSION below."
         required: false
         default: ""
       nono_version:
@@ -36,7 +36,7 @@ on:
 
 # Pinned versions — keep in sync with deploy/kind/deploy.sh and kata-kernel.yaml.
 env:
-  KATA_VERSION: "3.28.0"
+  KATA_VERSION: "4.0.0"
   NONO_VERSION: "v0.23.0"
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/${{ github.repository_owner }}/kata-rootfs-nono

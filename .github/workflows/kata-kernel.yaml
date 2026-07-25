@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       kata_version:
-        description: "kata-containers release tag (e.g. 3.28.0). Defaults to KATA_VERSION below."
+        description: "kata-containers release tag (e.g. 4.0.0). Defaults to KATA_VERSION below."
         required: false
         default: ""
       force_rebuild:
@@ -33,7 +33,7 @@ on:
 # Update this and KATA_VERSION in deploy/kind/deploy.sh together when
 # upgrading kata.
 env:
-  KATA_VERSION: "3.28.0"
+  KATA_VERSION: "4.0.0"
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/${{ github.repository_owner }}/kata-kernel-landlock
 

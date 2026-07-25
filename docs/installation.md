@@ -37,7 +37,7 @@ OPA policy. The nono Landlock sandbox runs inside the VM.
 ```bash
 helm upgrade --install kata-deploy \
   oci://ghcr.io/kata-containers/kata-deploy-charts/kata-deploy \
-  --version 3.28.0 \
+  --version 4.0.0 \
   --namespace kube-system \
   --set k8sDistribution=k8s \
   --set shims.disableAll=true \

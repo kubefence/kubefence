@@ -102,12 +102,12 @@ kata:
   enabled: false
 
   # OCI image carrying /vmlinux — built by .github/workflows/kata-kernel.yaml.
-  # Pin to an immutable digest in production: ghcr.io/kubefence/kata-kernel-landlock:3.28.0@sha256:<digest>
-  kernelImage: ghcr.io/kubefence/kata-kernel-landlock:3.28.0
+  # Pin to an immutable digest in production: ghcr.io/kubefence/kata-kernel-landlock:4.0.0@sha256:<digest>
+  kernelImage: ghcr.io/kubefence/kata-kernel-landlock:4.0.0
 
   # OCI image carrying /kata-containers-confidential.image — built by kata-rootfs.yaml.
-  # Pin to an immutable digest in production: ghcr.io/kubefence/kata-rootfs-nono:3.28.0-v0.23.0@sha256:<digest>
-  rootfsImage: ghcr.io/kubefence/kata-rootfs-nono:3.28.0-v0.23.0
+  # Pin to an immutable digest in production: ghcr.io/kubefence/kata-rootfs-nono:4.0.0-v0.23.0@sha256:<digest>
+  rootfsImage: ghcr.io/kubefence/kata-rootfs-nono:4.0.0-v0.23.0
 
   # Directory where kata-deploy installs kata share files on each node.
   shareDir: /opt/kata/share/kata-containers

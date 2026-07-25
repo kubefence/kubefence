@@ -76,7 +76,7 @@ is opt-in, not the other way around.
 - **e2tools must be available**: `debugfs` is from `e2fsprogs`; already in builder apt list.
 - **`sfdisk` availability**: `sfdisk` is in `fdisk` package on Ubuntu 24.04 — add to
   builder `apt-get install` list.
-- **Kata version pin**: `KATA_VERSION=3.28.0` is pinned across deploy.sh, kata-kernel.yaml,
+- **Kata version pin**: `KATA_VERSION=4.0.0` is pinned across deploy.sh, kata-kernel.yaml,
   kata-rootfs.yaml — keep in sync.
 <!-- GSD:project-end -->
 
@@ -99,7 +99,7 @@ is opt-in, not the other way around.
 - `github.com/onsi/gomega` v1.39.1 - Assertion/matcher library
 - Docker/containerd - For image building and cluster testing
 - Kind - Kubernetes-in-Docker for local cluster testing
-- Kata Containers 3.28.0+ - VM-based container runtime (optional)
+- Kata Containers 4.0.0+ - VM-based container runtime (optional)
 ## Key Dependencies
 - `github.com/containerd/nri` v0.10.0 - Why it matters: Provides NRI plugin interface stub, API types, and gRPC/ttrpc protocol bindings for container lifecycle events (CreateContainer, RemoveContainer, StopContainer)
 - `github.com/pelletier/go-toml/v2` v2.2.4 - Configuration file parsing (see `internal/nri/config.go`)
@@ -125,8 +125,8 @@ is opt-in, not the other way around.
 - Linux kernel 5.13+ with Landlock LSM support
 - Read access to NRI socket (`/var/run/nri/nri.sock`)
 - Writable state directory (`/var/run/nono-nri` in DaemonSet)
-- Kata Containers 3.28.0+ with custom kernel including `CONFIG_SECURITY_LANDLOCK=y`
-- Pre-built kernel image from `ghcr.io/<owner>/kata-kernel-landlock:3.28.0`
+- Kata Containers 4.0.0+ with custom kernel including `CONFIG_SECURITY_LANDLOCK=y`
+- Pre-built kernel image from `ghcr.io/<owner>/kata-kernel-landlock:4.0.0`
 - Custom Ubuntu rootfs image (KATA_ROOTFS mode)
 ## Standard Library Usage
 - `log/slog` - Structured logging with JSON or text output handlers

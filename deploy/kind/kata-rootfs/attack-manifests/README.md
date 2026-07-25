@@ -57,7 +57,7 @@ ExecProcessRequest:     blocked unless command is /nono/nono wrap --profile … 
 ## Reproducing genpolicy analysis
 
 ```bash
-KATA=3.28.0
+KATA=4.0.0
 curl -fsSL -o kata-tools.tar.zst \
   https://github.com/kata-containers/kata-containers/releases/download/${KATA}/kata-tools-static-${KATA}-amd64.tar.zst
 tar --use-compress-program=unzstd -xf kata-tools.tar.zst

@@ -49,7 +49,7 @@ a Landlock-enabled build, patches the QEMU config, and registers the
 KATA=true \
 SKIP_BUILD=true \
 IMAGE=ghcr.io/kubefence/nono-nri-plugin:latest \
-KATA_KERNEL_IMAGE=ghcr.io/kubefence/kata-kernel-landlock:3.28.0 \
+KATA_KERNEL_IMAGE=ghcr.io/kubefence/kata-kernel-landlock:4.0.0 \
 bash deploy/kind/deploy.sh
 ```
 
@@ -62,7 +62,7 @@ the image isn't available it falls back to a local build (~20-40 min).
 
 The deploy script performs these extra steps when `KATA=true`:
 
-1. **Installs Kata** via `helm install kata-deploy` (pinned to `KATA_VERSION=3.28.0`).
+1. **Installs Kata** via `helm install kata-deploy` (pinned to `KATA_VERSION=4.0.0`).
 2. **Expands `/dev/shm`** on the kind node to 16 GB (kata uses memory-backend-file for NUMA).
 3. **Pulls the Landlock kernel** from `KATA_KERNEL_IMAGE`, extracts `/vmlinux`, and
    caches it at `/tmp/kata-vmlinux-landlock-<linux-ver>.elf` on the host.
@@ -172,8 +172,8 @@ RUNTIME=crio bash deploy/kind/deploy.sh
 | `IMAGE` | `nono-nri:latest` | Plugin image tag (set to `ghcr.io/kubefence/nono-nri-plugin:latest` to use the published image) |
 | `SKIP_BUILD` | `false` | Skip `make docker-build`; pull `IMAGE` from a registry instead |
 | `KATA` | `false` | Install Kata Containers with a Landlock-enabled kernel (`true`/`false`). |
-| `KATA_VERSION` | `3.28.0` | kata-containers release to install. Keep in sync with `KATA_VERSION` in `.github/workflows/kata-kernel.yaml`. |
-| `KATA_KERNEL_IMAGE` | auto | Pre-built kernel image (e.g. `ghcr.io/yourorg/kata-kernel-landlock:3.28.0`). Derived from the git remote owner when unset. Falls back to a local source build if the image is unavailable. Cached in `/tmp/kata-vmlinux-landlock-<ver>.elf`. |
+| `KATA_VERSION` | `4.0.0` | kata-containers release to install. Keep in sync with `KATA_VERSION` in `.github/workflows/kata-kernel.yaml`. |
+| `KATA_KERNEL_IMAGE` | auto | Pre-built kernel image (e.g. `ghcr.io/yourorg/kata-kernel-landlock:4.0.0`). Derived from the git remote owner when unset. Falls back to a local source build if the image is unavailable. Cached in `/tmp/kata-vmlinux-landlock-<ver>.elf`. |
 | `REGISTRY_NAME` | `nono-nri-registry` | Local registry container name (crio only) |
 | `REGISTRY_PORT` | `5100` | Local registry port on the host (crio only) |
 

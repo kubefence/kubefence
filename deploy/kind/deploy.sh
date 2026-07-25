@@ -10,7 +10,7 @@
 #   CLUSTER_NAME    cluster name (default: nono-<runtime>)
 #   IMAGE           plugin image tag (default: nono-nri:latest)
 #   SKIP_BUILD      true to skip docker build and pull IMAGE from a registry instead
-#   KATA_VERSION    kata-containers release to install (default: 3.28.0)
+#   KATA_VERSION    kata-containers release to install (default: 4.0.0)
 #   KATA_KERNEL_IMAGE  pre-built Landlock kernel image; derived from git remote if unset
 #   KATA_ROOTFS     true to deploy the custom confidential guest rootfs with nono pre-installed
 #                   (requires KATA=true; enables vm_rootfs_classes in plugin config)
@@ -27,10 +27,10 @@ IMAGE="${IMAGE:-nono-nri:latest}"
 KATA="${KATA:-true}"             # set KATA=false to skip Kata Containers
 # Pinned kata-containers version. Keep in sync with KATA_VERSION in
 # .github/workflows/kata-kernel.yaml when upgrading kata.
-KATA_VERSION="${KATA_VERSION:-3.28.0}"
+KATA_VERSION="${KATA_VERSION:-4.0.0}"
 # Pre-built kata kernel image (published by the kata-kernel-landlock GHA workflow).
 # Derived from the git remote owner at runtime; override to use a custom build.
-#   KATA_KERNEL_IMAGE=ghcr.io/yourorg/kata-kernel-landlock:3.28.0
+#   KATA_KERNEL_IMAGE=ghcr.io/yourorg/kata-kernel-landlock:4.0.0
 KATA_KERNEL_IMAGE="${KATA_KERNEL_IMAGE:-}"
 # Custom confidential guest rootfs with nono pre-installed (published by kata-rootfs-nono GHA workflow).
 # Requires KATA=true. Enables vm_rootfs_classes for the kata-nono-qemu handler.
