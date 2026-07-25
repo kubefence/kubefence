@@ -161,6 +161,27 @@ kata:
 This is required for nested-KVM stability. Without it, Kata VMs may crash or
 hang intermittently.
 
+**Step 6 — inotify limits (`too many open files`)**
+
+If pods stay in `ContainerCreating` with:
+
+```
+failed to create shim task: Creating watcher returned error too many open files
+```
+
+the host has run out of inotify instances — each Kata shim allocates watchers,
+and distro defaults (often `max_user_instances = 128`) are far too low. Raise
+them on the **host**, not in the cluster:
+
+```bash
+sudo sysctl -w fs.inotify.max_user_instances=8192
+sudo sysctl -w fs.inotify.max_user_watches=1048576
+```
+
+Persist in `/etc/sysctl.d/` — `sysctl -w` is lost on reboot. This is a host
+limit, so it presents as a Kata failure even though nothing is wrong with the
+Kata configuration.
+
 ---
 
 ## Log interpretation
