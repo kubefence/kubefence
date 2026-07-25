@@ -45,14 +45,16 @@ spec:
               mountPath: {{ .Values.kata.qemuConfigPath | dir }}
               readOnly: true
 
-        # ── 2. Install nono-embedded kata rootfs ─────────────────────────────
-        # The kata-rootfs-nono image (FROM scratch + static /bin/cp) copies
-        # /kata-containers-confidential.image to the destination.
-        - name: install-kata-rootfs
-          image: {{ .Values.kata.rootfsImage | quote }}
-          command: ["/bin/cp", "/kata-containers-confidential.image"]
+        # ── 2. Install the nono guest extension image ────────────────────────
+        # The kata-nono-extension image (FROM scratch + static /bin/cp) copies
+        # /kata-nono-extension.img to the destination. command+args are set
+        # explicitly rather than relying on ENTRYPOINT so the intent is clear in
+        # kubectl describe and the chart is not fragile to image metadata changes.
+        - name: install-kata-extension
+          image: {{ .Values.kata.extensionImage | quote }}
+          command: ["/bin/cp", "/kata-nono-extension.img"]
           args:
-            - {{ printf "%s/kata-confidential-nono.image" .Values.kata.shareDir | quote }}
+            - {{ printf "%s/kata-nono-extension.img" .Values.kata.shareDir | quote }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -75,7 +77,8 @@ spec:
               set -euo pipefail
               KATA_CFG="{{ .Values.kata.qemuConfigPath }}"
               SHARE_DIR="{{ .Values.kata.shareDir }}"
-              NONO_ROOTFS="${SHARE_DIR}/kata-confidential-nono.image"
+              NONO_EXT="${SHARE_DIR}/kata-nono-extension.img"
+              AGENT_CFG="/run/kata-extensions/nono/agent-config.toml"
               KATA_CFG_DIR="$(dirname ${KATA_CFG})"
               KATA_CFG_NONO="${KATA_CFG_DIR}/configuration-kata-nono-qemu.toml"
               CONTAINERD_CFG="{{ .Values.containerdConfigPath }}"
@@ -92,10 +95,39 @@ spec:
               echo "Set machine_accelerators in ${KATA_CFG}."
               {{- end }}
 
-              # ── Create kata-nono-qemu config: same as qemu but nono rootfs ─
+              # ── Create kata-nono-qemu config: qemu + the nono extension ────
+              # Inherits everything from configuration-qemu.toml, including the
+              # stock guest image and kernel, which are left untouched.
               cp "${KATA_CFG}" "${KATA_CFG_NONO}"
-              sed -i "s|^image = .*|image = \"${NONO_ROOTFS}\"|" "${KATA_CFG_NONO}"
-              echo "Created ${KATA_CFG_NONO} (rootfs → ${NONO_ROOTFS})."
+
+              # Point kata-agent at the OPA policy shipped in the extension.
+              # Appended to kernel_params, never replacing it. Note the agent
+              # stops parsing the command line at agent.config_file, so any
+              # other agent.* setting must go inside agent-config.toml instead.
+              if grep -q '^kernel_params' "${KATA_CFG_NONO}"; then
+                sed -i "s|^kernel_params = \"\(.*\)\"|kernel_params = \"\1 agent.config_file=${AGENT_CFG}\"|" "${KATA_CFG_NONO}"
+              else
+                sed -i "s|\(\[hypervisor\.qemu\]\)|\1\nkernel_params = \"agent.config_file=${AGENT_CFG}\"|" "${KATA_CFG_NONO}"
+              fi
+              grep -q "agent.config_file=${AGENT_CFG}" "${KATA_CFG_NONO}" || {
+                echo "ERROR: failed to add agent.config_file to ${KATA_CFG_NONO}" >&2
+                grep -n 'kernel_params' "${KATA_CFG_NONO}" >&2 || true
+                exit 1
+              }
+
+              # Cold-plug the extension as a read-only virtio-blk device.
+              # verity_params is empty: the extension ships no dm-verity hash
+              # partition, so kata-extension-mount.sh raw-mounts it. The entry
+              # is still what activates the guest-side mount unit, so it must be
+              # present even with an empty value.
+              cat >> "${KATA_CFG_NONO}" <<EXTEOF
+
+              [[hypervisor.qemu.guest_extension_images]]
+              name = "nono"
+              path = "${NONO_EXT}"
+              verity_params = ""
+              EXTEOF
+              echo "Created ${KATA_CFG_NONO} (extension → ${NONO_EXT})."
 
               {{- if .Values.kata.qemu.seccompSandbox }}
               # ── Apply QEMU process-level seccomp sandbox ──────────────────

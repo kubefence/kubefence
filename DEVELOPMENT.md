@@ -26,10 +26,11 @@ make docker-build    # outputs nono-nri:latest
 
 ## Quick Start with Kind
 
-Requires a host with KVM support. `KATA=true` and `KATA_ROOTFS=true` are the
-defaults — the deploy script installs Kata via helm, embeds nono in the guest VM
-image, and registers the `kata-nono-sandbox` RuntimeClass automatically. The
-guest kernel needs no patching: kata >= 4.0 enables Landlock by default.
+Requires a host with KVM support. `KATA=true` and `KATA_EXTENSION=true` are the
+defaults — the deploy script installs Kata via helm, cold-plugs the nono guest
+extension into the VM, and registers the `kata-nono-sandbox` RuntimeClass
+automatically. Neither the guest kernel nor the guest image is patched: kata >= 4.0
+enables Landlock by default and carries the extension as a separate block device.
 
 ```bash
 git clone https://github.com/kubefence/kubefence
@@ -59,7 +60,7 @@ spec:
 
 This gives you two enforcement layers: Landlock filesystem confinement inside the
 VM, and `kubectl exec` blocked at the hypervisor by the kata-agent OPA policy
-(`deploy/kind/kata-rootfs/policy.rego`).
+(`deploy/kind/kata-extension/policy.rego`).
 
 **runc opt-in** (no KVM required, no exec blocking):
 
@@ -138,7 +139,7 @@ deploy/
 |----------|---------|-----------|
 | `lint` | push / PR to main | — (gofmt, go vet, mod tidy, unit tests) |
 | `release` | GitHub release published | `ghcr.io/kubefence/nono-nri-plugin:<version>` |
-| `kata-rootfs` | release + push (Dockerfile/inject.sh/policy.rego) | `ghcr.io/kubefence/kata-rootfs-nono:<kata-version>-<nono-version>` |
+| `kata-extension` | release + push (Dockerfile/policy.rego/agent-config.toml) | `ghcr.io/kubefence/kata-nono-extension:<ref>` |
 | `helm-publish` | release + push (chart files) | `oci://ghcr.io/kubefence/charts/kubefence:<version>` |
 
 The pinned `NONO_VERSION` in

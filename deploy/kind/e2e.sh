@@ -73,9 +73,9 @@ cleanup_pods() {
 }
 trap cleanup_pods EXIT
 
-# Whether the cluster was deployed with the custom kata rootfs (embedded nono
-# binary + hardened kata-agent policy).  Set to false to skip Test 7.
-KATA_ROOTFS="${KATA_ROOTFS:-true}"
+# Whether the cluster was deployed with the nono guest extension image, which
+# carries the hardened kata-agent policy.  Set to false to skip Test 7.
+KATA_EXTENSION="${KATA_EXTENSION:-true}"
 
 # ── Build + load e2e test image ───────────────────────────────────────────────
 # nono is dynamically linked (glibc + libdbus-1). Alpine containers cannot run it.
@@ -428,11 +428,11 @@ fi
 
 echo ""
 
-# ── Test 7: kata-agent policy enforcement (requires KATA_ROOTFS=true) ────────
+# ── Test 7: kata-agent policy enforcement (requires KATA_EXTENSION=true) ─────
 echo "── Test 7: kata-agent policy enforcement ────────────────────────────────"
 
-if [[ -z "$KATA_RC" || "$KATA_ROOTFS" != "true" ]]; then
-  pass "policy enforcement tests (skipped — requires kata-nono-sandbox + KATA_ROOTFS=true)"
+if [[ -z "$KATA_RC" || "$KATA_EXTENSION" != "true" ]]; then
+  pass "policy enforcement tests (skipped — requires kata-nono-sandbox + KATA_EXTENSION=true)"
 else
 
   # Two-layer defence model:

@@ -40,7 +40,7 @@ These values are rendered into the TOML config file loaded by the plugin.
 | Value | Default | Description |
 |-------|---------|-------------|
 | `kata.enabled` | `false` | Enable the kata-setup DaemonSet. Requires kata-deploy to be installed first |
-| `kata.rootfsImage` | `ghcr.io/kubefence/kata-rootfs-nono:4.0.0-v0.23.0` | OCI image carrying the Kata guest rootfs with nono pre-installed. Pin to an immutable digest in production |
+| `kata.extensionImage` | `ghcr.io/kubefence/kata-nono-extension:latest` | OCI image carrying the nono guest extension (hardened kata-agent policy). Pin to an immutable digest in production |
 | `kata.shareDir` | `/opt/kata/share/kata-containers` | Directory where kata-deploy installs kata share files on each node |
 | `kata.qemuConfigPath` | `/opt/kata/share/defaults/kata-containers/runtimes/qemu/configuration-qemu.toml` | Path to the kata QEMU configuration file written by kata-deploy |
 | `kata.qemu.machineAccelerators` | `""` | Additional QEMU machine accelerators. Set to `"kernel_irqchip=split"` for nested-KVM environments (e.g. Kind clusters) |

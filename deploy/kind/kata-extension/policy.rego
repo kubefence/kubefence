@@ -91,8 +91,12 @@ copies_to_nono_path if {
 # NRI-absent safety: if the NRI plugin is misconfigured or absent, no /nono
 #   bind-mount is injected at all (count == 0).  Legitimate containers are
 #   still allowed.  Any attacker-supplied /nono mount has rbind and is denied.
-#   Inside the kata VM, /nono/nono is provided by the rootfs image, so
-#   ExecProcessRequest gating remains effective against a trusted binary.
+#   With no /nono mount the container has no /nono/nono to exec, so
+#   ExecProcessRequest — which admits nothing but /nono/nono — fails closed:
+#   exec is unusable rather than usable against an untrusted binary.
+#   (The guest image no longer carries a copy of /nono/nono; it is delivered
+#   only by the NRI bind-mount, and exec resolves paths in the container's
+#   mount namespace, not the guest rootfs.)
 #
 # Attacks blocked: hostPath (dir or file), emptyDir, ConfigMap, Secret at
 #   /nono or /nono/nono — all carry rbind in their OCI options.

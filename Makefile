@@ -17,8 +17,8 @@ test-all:
 # OPA unit tests for the kata-agent policy.
 # Requires the opa binary: https://openpolicyagent.org/docs/latest/#running-opa
 policy-test:
-	opa test deploy/kind/kata-rootfs/policy.rego \
-	         deploy/kind/kata-rootfs/policy_test.rego -v
+	opa test deploy/kind/kata-extension/policy.rego \
+	         deploy/kind/kata-extension/policy_test.rego -v
 
 clean:
 	rm -f $(BINARY)

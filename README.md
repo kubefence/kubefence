@@ -105,7 +105,7 @@ Published images (built by CI on every release):
 | Image | Contents |
 |-------|----------|
 | `ghcr.io/kubefence/nono-nri-plugin:latest` | NRI plugin (`10-nono-nri`) + `nono` sandbox binary |
-| `ghcr.io/kubefence/kata-rootfs-nono:latest` | Kata rootfs with `nono` binary pre-installed |
+| `ghcr.io/kubefence/kata-nono-extension:latest` | Kata guest extension image carrying the hardened kata-agent policy |
 | `ghcr.io/kubefence/charts/kubefence:latest` | Helm charts for deployment |
 
 
@@ -162,8 +162,8 @@ helm upgrade --install kubefence \
 ```
 
 The `kata-setup` DaemonSet will:
-- Pull `ghcr.io/kubefence/kata-rootfs-nono:latest` and install the
-  Kata rootfs (with `nono` pre-installed) onto each node
+- Pull `ghcr.io/kubefence/kata-nono-extension:latest` and install the nono
+  guest extension image onto each node
 - Create `configuration-kata-nono-qemu.toml` referencing the nono rootfs
 - Register the `kata-nono-qemu` runtime handler in containerd
 
@@ -190,7 +190,7 @@ spec:
 
 This gives two enforcement layers: Landlock filesystem confinement inside
 the VM, and `kubectl exec` blocked at the hypervisor by the kata-agent OPA
-policy (`deploy/kind/kata-rootfs/policy.rego`).
+policy (`deploy/kind/kata-extension/policy.rego`).
 
 Optionally override the nono profile per pod:
 

@@ -63,8 +63,8 @@ helm upgrade --install kubefence \
 
 The `kata-setup` DaemonSet will:
 
-- Pull `ghcr.io/kubefence/kata-rootfs-nono:latest` and install the Kata rootfs
-  (with `nono` pre-installed) onto each node
+- Pull `ghcr.io/kubefence/kata-nono-extension:latest` and install the nono
+  guest extension image onto each node
 - Create `configuration-kata-nono-qemu.toml` referencing the nono rootfs
 - Register the `kata-nono-qemu` runtime handler in containerd
 

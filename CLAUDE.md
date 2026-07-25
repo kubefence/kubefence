@@ -54,31 +54,37 @@ NRI event delivery constraints, testing patterns, and invariants.
 <!-- GSD:project-start source:PROJECT.md -->
 ## Project
 
-**nono-nri: Kata-first confidential rootfs**
+**nono-nri: Kata-first confidential sandboxing**
 
 nono-nri is a Kubernetes NRI plugin that transparently wraps container processes
-with the nono Landlock sandbox. It injects nono into opted-in pods via RuntimeClass
-and supports two delivery modes: host bind-mount (runc or Kata via virtiofs) and
-embedded rootfs (nono baked into the Kata guest image). This milestone makes Kata
-Containers the default runtime and switches the embedded rootfs base from
-`kata-ubuntu-noble.image` to `kata-containers-confidential.img`.
+with the nono Landlock sandbox. It injects nono into opted-in pods via RuntimeClass.
+The nono binary is always delivered by host bind-mount (plain bind for runc,
+virtiofs for Kata); the hardened kata-agent OPA policy is delivered to Kata guests
+as a composable-VM-images extension image. Both the Kata guest kernel and guest
+image are used exactly as kata-deploy ships them.
 
 **Core Value:** Kata Containers is the default, production-grade sandboxing path — runc access
 is opt-in, not the other way around.
 
 ### Constraints
 
-- **No root / no loop mount**: `inject.sh` must stay root-free; use `dd` + `debugfs -w`
-  for ext4 injection. Dynamic geometry detection must also be root-free (`sfdisk --json`
-  works on regular files).
-- **Streaming extraction**: Dockerfile streams the kata-static tarball to avoid
-  storing the full ~1 GB archive; `tar --to-stdout -x <path>` pattern must be kept.
-- **e2tools must be available**: `debugfs` is from `e2fsprogs`; already in builder apt list.
-- **`sfdisk` availability**: `sfdisk` is in `fdisk` package on Ubuntu 24.04 — add to
-  builder `apt-get install` list.
-- **Kata version pin**: `KATA_VERSION=4.0.0` is pinned across deploy.sh and
-  kata-rootfs.yaml — keep in sync. 4.0.0 is a hard minimum: earlier kata guest
-  kernels are built without Landlock.
+- **Nothing rebuilds the Kata guest image or kernel**: kata >= 4.0 enables Landlock
+  in every guest kernel and supports `guest_extension_images`, so the stock
+  artefacts are used unmodified. Do not reintroduce rootfs injection or a custom
+  kernel build.
+- **Extension images must be erofs with no partition table**: the guest's
+  `kata-extension-mount.sh` runs `mount -t erofs -o ro`, and with no dm-verity hash
+  partition it raw-mounts the whole device. Built root-free with `mkfs.erofs`.
+- **`verity_params` must be present but empty**: the runtime emits
+  `kata.extension.<name>.verity_params` from that entry, and it is the guest-side
+  activation signal for the mount unit — an absent entry means the extension is
+  never mounted.
+- **`agent.config_file` short-circuits the kernel command line**: the agent returns
+  from `from_cmdline` at that parameter, so every other agent setting must live in
+  the extension's `agent-config.toml`, not in `kernel_params`.
+- **Kata version pin**: `KATA_VERSION=4.0.0` is pinned in deploy.sh. 4.0.0 is a
+  hard minimum: earlier kata guest kernels are built without Landlock and have no
+  composable-image support.
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:codebase/STACK.md -->
@@ -115,7 +121,7 @@ is opt-in, not the other way around.
 - Flags at runtime:
 - `Dockerfile` - Multi-stage Alpine-based container build (1.24-alpine → alpine:3.20)
 - `Makefile` - Build targets: `build`, `test`, `docker-build`, `docker-load-kind`, `kind-*`
-- `.github/workflows/` - CI/CD via GitHub Actions (lint, release, kata-rootfs)
+- `.github/workflows/` - CI/CD via GitHub Actions (lint, release, kata-extension)
 ## Platform Requirements
 - Go 1.24+ toolchain
 - Docker (for `make docker-build`, `make nono-build` with glibc)
@@ -127,7 +133,6 @@ is opt-in, not the other way around.
 - Read access to NRI socket (`/var/run/nri/nri.sock`)
 - Writable state directory (`/var/run/nono-nri` in DaemonSet)
 - Kata Containers 4.0.0+ (its stock guest kernel has `CONFIG_SECURITY_LANDLOCK=y`)
-- Custom Ubuntu rootfs image (KATA_ROOTFS mode)
 ## Standard Library Usage
 - `log/slog` - Structured logging with JSON or text output handlers
 - `flag` - Command-line flag parsing

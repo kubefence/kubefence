@@ -1,0 +1,14 @@
+# kata-agent configuration, shipped inside the nono guest extension image.
+#
+# The kata-nono-qemu runtime config points the agent here with
+#   kernel_params = "agent.config_file=/run/kata-extensions/nono/agent-config.toml"
+# and the extension is mounted at /run/kata-extensions/nono before
+# kata-agent.service starts (kata-extension-mount@.service is ordered
+# Before=kata-agent.service), so this file is readable by the time the agent
+# parses it.
+#
+# CAVEAT: agent.config_file short-circuits the rest of the kernel command line —
+# AgentConfig::from_cmdline returns as soon as it sees the parameter, so any
+# other agent.* parameter is ignored. Every agent setting the kata-nono-qemu
+# handler needs must therefore be set in THIS file, not via kernel_params.
+policy_file = "/run/kata-extensions/nono/policy.rego"

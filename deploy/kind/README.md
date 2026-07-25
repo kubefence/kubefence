@@ -61,11 +61,21 @@ The deploy script performs these extra steps when `KATA=true`:
 3. **Patches the QEMU config** (`configuration-qemu.toml`):
    - Sets `machine_accelerators = "kernel_irqchip=split"` (required for nested-KVM with Kind).
    - Leaves `kernel` untouched — the stock kata kernel already has Landlock.
-4. **Applies `deploy/runtimeclass-kata.yaml`** — registers the `kata-nono-sandbox`
+4. **Installs the nono guest extension** (when `KATA_EXTENSION=true`, the default):
+   copies `kata-nono-extension.img` onto the node, then writes
+   `configuration-kata-nono-qemu.toml` — a copy of the QEMU config plus a
+   `[[hypervisor.qemu.guest_extension_images]]` entry and
+   `agent.config_file=/run/kata-extensions/nono/agent-config.toml` appended to
+   `kernel_params` — and registers the `kata-nono-qemu` handler.
+5. **Applies `deploy/runtimeclass-kata.yaml`** — registers the `kata-nono-sandbox`
    RuntimeClass (handler: `kata-qemu`).
 
 The nono binary is delivered to the Kata VM via a virtiofs bind-mount, exactly
-as for runc containers.
+as for runc containers. The guest image itself is never modified: the hardened
+kata-agent OPA policy travels in the extension image, which the runtime
+cold-plugs as a read-only virtio-blk device and the guest mounts at
+`/run/kata-extensions/nono` before `kata-agent` starts. See
+[composable VM images](https://github.com/kata-containers/kata-containers/blob/main/docs/design/composable-vm-images.md).
 
 ### Running workloads
 
@@ -163,7 +173,9 @@ RUNTIME=crio bash deploy/kind/deploy.sh
 | `IMAGE` | `nono-nri:latest` | Plugin image tag (set to `ghcr.io/kubefence/nono-nri-plugin:latest` to use the published image) |
 | `SKIP_BUILD` | `false` | Skip `make docker-build`; pull `IMAGE` from a registry instead |
 | `KATA` | `false` | Install Kata Containers (`true`/`false`). |
-| `KATA_VERSION` | `4.0.0` | kata-containers release to install. 4.0.0 is the minimum: earlier guest kernels have Landlock compiled out. Keep in sync with `KATA_VERSION` in `.github/workflows/kata-rootfs.yaml`. |
+| `KATA_VERSION` | `4.0.0` | kata-containers release to install. 4.0.0 is the minimum: earlier guest kernels have Landlock compiled out and have no composable-image support. |
+| `KATA_EXTENSION` | `true` | Deploy the nono guest extension image carrying the hardened kata-agent policy (requires `KATA=true`). |
+| `KATA_EXTENSION_IMAGE` | auto | Pre-built extension image (e.g. `ghcr.io/yourorg/kata-nono-extension:latest`). Derived from the git remote owner when unset; falls back to building it locally (a few seconds). |
 | `REGISTRY_NAME` | `nono-nri-registry` | Local registry container name (crio only) |
 | `REGISTRY_PORT` | `5100` | Local registry port on the host (crio only) |
 

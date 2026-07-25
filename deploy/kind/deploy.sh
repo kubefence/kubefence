@@ -11,10 +11,9 @@
 #   IMAGE           plugin image tag (default: nono-nri:latest)
 #   SKIP_BUILD      true to skip docker build and pull IMAGE from a registry instead
 #   KATA_VERSION    kata-containers release to install (default: 4.0.0)
-#   KATA_ROOTFS     true to deploy the custom confidential guest rootfs with nono pre-installed
-#                   (requires KATA=true; enables vm_rootfs_classes in plugin config)
-#   KATA_ROOTFS_IMAGE  pre-built rootfs image; derived from git remote if unset
-#   NONO_VERSION    nono version for local rootfs fallback build (default: v0.23.0)
+#   KATA_EXTENSION  true to deploy the nono guest extension image, which carries the
+#                   hardened kata-agent policy (requires KATA=true)
+#   KATA_EXTENSION_IMAGE  pre-built extension image; derived from git remote if unset
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,15 +23,16 @@ RUNTIME="${RUNTIME:-containerd}"
 CLUSTER_NAME="${CLUSTER_NAME:-nono-${RUNTIME}}"
 IMAGE="${IMAGE:-nono-nri:latest}"
 KATA="${KATA:-true}"             # set KATA=false to skip Kata Containers
-# Pinned kata-containers version. Keep in sync with KATA_VERSION in
-# .github/workflows/kata-rootfs.yaml when upgrading kata.
-# 4.0.0+ is required: earlier kata kernels are built without Landlock.
+# Pinned kata-containers version.
+# 4.0.0+ is required: earlier kata kernels are built without Landlock and have
+# no composable-VM-images (guest_extension_images) support.
 KATA_VERSION="${KATA_VERSION:-4.0.0}"
-# Custom confidential guest rootfs with nono pre-installed (published by kata-rootfs-nono GHA workflow).
-# Requires KATA=true. Enables vm_rootfs_classes for the kata-nono-qemu handler.
-KATA_ROOTFS="${KATA_ROOTFS:-true}"
-KATA_ROOTFS_IMAGE="${KATA_ROOTFS_IMAGE:-}"
-NONO_VERSION="${NONO_VERSION:-v0.23.0}"  # used when building the rootfs locally
+# nono guest extension image carrying the hardened kata-agent OPA policy
+# (published by the kata-nono-extension GHA workflow). Requires KATA=true.
+# Cold-plugged into the VM via guest_extension_images; the stock kata guest
+# image is used unmodified.
+KATA_EXTENSION="${KATA_EXTENSION:-true}"
+KATA_EXTENSION_IMAGE="${KATA_EXTENSION_IMAGE:-}"
 SKIP_BUILD="${SKIP_BUILD:-false}"  # set SKIP_BUILD=true to use a pre-built / remote image
 
 # ── Validate runtime ──────────────────────────────────────────────────────────
@@ -249,70 +249,77 @@ if [[ "$KATA" == "true" ]]; then
   "
   echo "    Kata QEMU config patched (kernel_irqchip=split)."
 
-  # ── kata-nono-qemu: custom rootfs with nono pre-installed ────────────────────
-  if [[ "$KATA_ROOTFS" == "true" ]]; then
+  # ── kata-nono-qemu: hardened agent policy via a guest extension image ────────
+  if [[ "$KATA_EXTENSION" == "true" ]]; then
     echo ""
-    echo "==> Deploying kata-nono-sandbox (embedded nono rootfs, kata-nono-qemu handler)..."
+    echo "==> Deploying kata-nono-sandbox (nono guest extension, kata-nono-qemu handler)..."
 
-    KATA_ROOTFS_CACHE="/tmp/kata-rootfs-confidential-${KATA_VERSION}-${NONO_VERSION}.image"
+    KATA_EXT_CACHE="/tmp/kata-nono-extension.img"
 
-    if [ -f "${KATA_ROOTFS_CACHE}" ]; then
-      echo "    Using cached rootfs: ${KATA_ROOTFS_CACHE}"
+    # Resolve image name from git remote owner if not overridden.
+    if [ -z "${KATA_EXTENSION_IMAGE}" ]; then
+      _GH_OWNER=$(git -C "${SCRIPT_DIR}" remote get-url origin 2>/dev/null || true \
+        | sed -n 's|.*github\.com[:/]\([^/]*\)/.*|\1|p')
+      KATA_EXTENSION_IMAGE="ghcr.io/${_GH_OWNER:-k8s-nono}/kata-nono-extension:latest"
+    fi
+    echo "    Kata extension image: ${KATA_EXTENSION_IMAGE}"
+
+    if docker pull "${KATA_EXTENSION_IMAGE}" 2>/dev/null; then
+      _CTR=$(docker create "${KATA_EXTENSION_IMAGE}")
+      docker cp "${_CTR}:/kata-nono-extension.img" "${KATA_EXT_CACHE}"
+      docker rm "${_CTR}" >/dev/null
+      echo "    Extension extracted from image."
     else
-      # Resolve image name from git remote owner if not overridden.
-      if [ -z "${KATA_ROOTFS_IMAGE}" ]; then
-        _GH_OWNER=$(git -C "${SCRIPT_DIR}" remote get-url origin 2>/dev/null || true \
-          | sed -n 's|.*github\.com[:/]\([^/]*\)/.*|\1|p')
-        KATA_ROOTFS_IMAGE="ghcr.io/${_GH_OWNER:-k8s-nono}/kata-rootfs-nono:${KATA_VERSION}-${NONO_VERSION}"
-      fi
-      echo "    Kata rootfs image: ${KATA_ROOTFS_IMAGE}"
-
-      if docker pull "${KATA_ROOTFS_IMAGE}" 2>/dev/null; then
-        _CTR=$(docker create "${KATA_ROOTFS_IMAGE}")
-        docker cp "${_CTR}:/kata-containers-confidential.image" "${KATA_ROOTFS_CACHE}"
-        docker rm "${_CTR}" >/dev/null
-        echo "    Rootfs extracted from image."
-      else
-        # Fallback: build locally using inject.sh.
-        echo "    Pre-built image not available — building locally..."
-        apt-get install -qq -y e2tools 2>/dev/null || true
-
-        NONO_TARBALL="nono-${NONO_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
-        _NONO_TMP=$(mktemp -d)
-        curl -fsSL "https://github.com/always-further/nono/releases/download/${NONO_VERSION}/${NONO_TARBALL}" \
-          | tar xzf - -C "$_NONO_TMP"
-        _NONO_BIN=$(find "$_NONO_TMP" -maxdepth 3 -name nono -type f | head -1)
-
-        curl -fsSL \
-          "https://github.com/kata-containers/kata-containers/releases/download/${KATA_VERSION}/kata-static-${KATA_VERSION}-amd64.tar.zst" \
-          | zstd -d \
-          | tar --to-stdout -x "./opt/kata/share/kata-containers/kata-ubuntu-noble-confidential.image" \
-          > "${KATA_ROOTFS_CACHE}.tmp"
-
-        bash "${SCRIPT_DIR}/kata-rootfs/inject.sh" \
-          "${KATA_ROOTFS_CACHE}.tmp" "$_NONO_BIN" "${SCRIPT_DIR}/kata-rootfs/policy.rego"
-        mv "${KATA_ROOTFS_CACHE}.tmp" "${KATA_ROOTFS_CACHE}"
-        rm -rf "$_NONO_TMP"
-        echo "    Local build complete."
-      fi
+      # Fallback: build it here. Unlike the rootfs it replaced, this is a few
+      # kB of erofs built from two text files, so it is always cheap enough to
+      # build locally and no host-side cache is worth the staleness risk.
+      echo "    Pre-built image not available — building locally..."
+      docker build -q -t kata-nono-extension:local "${SCRIPT_DIR}/kata-extension" >/dev/null
+      _CTR=$(docker create kata-nono-extension:local)
+      docker cp "${_CTR}:/kata-nono-extension.img" "${KATA_EXT_CACHE}"
+      docker rm "${_CTR}" >/dev/null
+      echo "    Local build complete."
     fi
 
-    # Deploy the custom rootfs onto the node.
-    KATA_CUSTOM_ROOTFS="${KATA_SHARE}/kata-confidential-nono.image"
-    docker cp "${KATA_ROOTFS_CACHE}" "${NODE}:${KATA_CUSTOM_ROOTFS}"
-    docker exec "$NODE" chmod 644 "${KATA_CUSTOM_ROOTFS}"
-    echo "    Deployed: ${KATA_CUSTOM_ROOTFS}"
+    # Deploy the extension image onto the node.
+    KATA_NONO_EXT="${KATA_SHARE}/kata-nono-extension.img"
+    docker cp "${KATA_EXT_CACHE}" "${NODE}:${KATA_NONO_EXT}"
+    docker exec "$NODE" chmod 644 "${KATA_NONO_EXT}"
+    echo "    Deployed: ${KATA_NONO_EXT}"
 
-    # Create a dedicated kata config for the kata-nono-qemu handler.
-    # Inherits all settings from configuration-qemu.toml (Landlock kernel,
-    # machine_accelerators) but points image = at the custom nono rootfs.
-    # kata-nono-sandbox continues using the standard kata-ubuntu-noble-confidential.image.
+    # Create a dedicated kata config for the kata-nono-qemu handler. It inherits
+    # everything from configuration-qemu.toml — including the stock guest image,
+    # which is no longer modified — and only adds the nono extension.
+    #
+    # verity_params is empty: the extension carries no dm-verity hash partition,
+    # so kata-extension-mount.sh raw-mounts it. The parameter is still emitted on
+    # the kernel command line, and that is what activates the guest-side mount
+    # unit, so the entry must be present even though the value is empty.
+    #
+    # agent.config_file points the kata-agent at the policy shipped in the
+    # extension. It must be appended to kernel_params rather than replacing it,
+    # and note that the agent stops parsing the command line at this parameter —
+    # any other agent.* setting has to go inside agent-config.toml instead.
     KATA_CFG_NONO="$(dirname ${KATA_CFG})/configuration-kata-nono-qemu.toml"
     docker exec "$NODE" sh -c "
       cp '${KATA_CFG}' '${KATA_CFG_NONO}'
-      sed -i 's|^image = .*|image = \"${KATA_CUSTOM_ROOTFS}\"|' '${KATA_CFG_NONO}'
+      sed -i 's|^kernel_params = \"\(.*\)\"|kernel_params = \"\1 agent.config_file=/run/kata-extensions/nono/agent-config.toml\"|' '${KATA_CFG_NONO}'
+      grep -q '^kernel_params' '${KATA_CFG_NONO}' || \
+        sed -i 's|\(\[hypervisor.qemu\]\)|\1\nkernel_params = \"agent.config_file=/run/kata-extensions/nono/agent-config.toml\"|' '${KATA_CFG_NONO}'
+      cat >> '${KATA_CFG_NONO}' <<EOF
+
+[[hypervisor.qemu.guest_extension_images]]
+name = \"nono\"
+path = \"${KATA_NONO_EXT}\"
+verity_params = \"\"
+EOF
     "
-    echo "    Created ${KATA_CFG_NONO} with custom rootfs."
+    docker exec "$NODE" grep -q 'agent.config_file=/run/kata-extensions/nono' "${KATA_CFG_NONO}" || {
+      echo "ERROR: failed to add agent.config_file to ${KATA_CFG_NONO}"
+      docker exec "$NODE" grep -n 'kernel_params' "${KATA_CFG_NONO}" || true
+      exit 1
+    }
+    echo "    Created ${KATA_CFG_NONO} with the nono guest extension."
 
     # Register kata-nono-qemu as a runtime handler in the active CRI.
     if [[ "$RUNTIME" == "crio" ]]; then
@@ -384,10 +391,9 @@ HELM_SET_ARGS=(
   --set "runtimeClasses.kataNono.enabled=${KATA}"
 )
 
-if [[ "$KATA" == "true" && "$KATA_ROOTFS" == "true" ]]; then
+if [[ "$KATA" == "true" && "$KATA_EXTENSION" == "true" ]]; then
   HELM_SET_ARGS+=(
     --set "config.runtimeClasses={nono-runc,kata-qemu,kata-nono-qemu}"
-    --set "config.vmRootfsClasses={kata-nono-qemu}"
     --set "runtimeClasses.kataNono.handler=kata-nono-qemu"
   )
 elif [[ "$KATA" == "true" ]]; then

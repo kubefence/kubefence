@@ -52,7 +52,7 @@ Published images built by CI on every release:
 | Image | Contents |
 |-------|----------|
 | `ghcr.io/kubefence/nono-nri-plugin:latest` | NRI plugin (`10-nono-nri`) + `nono` sandbox binary |
-| `ghcr.io/kubefence/kata-rootfs-nono:latest` | Kata rootfs with `nono` binary pre-installed |
+| `ghcr.io/kubefence/kata-nono-extension:latest` | Kata guest extension image carrying the hardened kata-agent policy |
 | `ghcr.io/kubefence/charts/kubefence:latest` | Helm chart for deployment |
 
 ## Documentation
