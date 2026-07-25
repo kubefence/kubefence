@@ -36,7 +36,7 @@ enables Landlock by default and carries the extension as a separate block device
 git clone https://github.com/kubefence/kubefence
 cd kubefence
 
-# Default: Kata Containers + embedded nono rootfs (recommended)
+# Default: Kata Containers + nono guest extension (recommended)
 SKIP_BUILD=true \
 IMAGE=ghcr.io/kubefence/nono-nri-plugin:latest \
 bash deploy/kind/deploy.sh

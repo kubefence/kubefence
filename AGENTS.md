@@ -334,6 +334,19 @@ The NRI socket mount is read-only because the plugin connects *to* containerd
 - RuntimeClass `kata-nono-sandbox` → handler `kata-qemu` → nono injected via
   virtiofs bind-mount (same bind-mount mechanism, virtiofsd makes host path
   visible inside the QEMU VM).
+- The `kata-nono-qemu` handler adds the hardened kata-agent OPA policy on top,
+  delivered as a composable-VM-images extension (`deploy/kind/kata-extension/`):
+  an unmeasured erofs image declared via `[[hypervisor.qemu.guest_extension_images]]`
+  with `verity_params = ""`, cold-plugged as read-only virtio-blk and mounted by
+  the guest at `/run/kata-extensions/nono` before `kata-agent.service` starts.
+  `kernel_params` carries
+  `agent.config_file=/run/kata-extensions/nono/agent-config.toml`, whose
+  `policy_file` selects the policy. Two constraints are easy to trip over:
+  `verity_params` must be present even when empty (the runtime emits it as the
+  guest-side activation signal for the mount unit), and `agent.config_file`
+  short-circuits the rest of the kernel command line, so every other agent
+  setting must go inside `agent-config.toml`.
+- The guest image itself is never modified.
 - Kata with nested KVM in kind requires:
   - `/dev/shm` remounted to ≥16 GB (NUMA memory backend)
   - `machine_accelerators = "kernel_irqchip=split"` in QEMU config

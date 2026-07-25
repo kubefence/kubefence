@@ -136,9 +136,9 @@ mount -o remount,size=16g /dev/shm
 kubectl rollout status daemonset/kata-deploy -n kube-system --timeout=5m
 ```
 
-The kubefence kata-setup DaemonSet waits for kata-deploy to complete before
-proceeding. If kata-deploy is not rolled out, the Landlock kernel will not be
-installed.
+The kubefence kata-setup DaemonSet waits for kata-deploy to write its QEMU
+config before proceeding. If kata-deploy is not rolled out, the `kata-nono-qemu`
+handler will not be configured.
 
 **Step 4 — Check kata-setup logs**
 
@@ -146,7 +146,7 @@ installed.
 kubectl logs -n kube-system -l app.kubernetes.io/component=kata-setup --tail=100
 ```
 
-Look for errors in kernel or rootfs installation.
+Look for errors installing the guest extension image or patching the kata config.
 
 **Step 5 — Nested KVM (Kind clusters)**
 

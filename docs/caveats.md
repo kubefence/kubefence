@@ -18,18 +18,17 @@ nono-nri: kernel 4.18 is too old: nono-nri requires Linux 5.13+ for Landlock LSM
 Most modern distributions (Ubuntu 22.04+, RHEL 9+, Debian 12+) ship kernels
 that satisfy this requirement. Older node images or custom kernel builds may not.
 
-## Kata kernel requirement
+## Kata version requirement
 
-The default Kata Containers kernel (from `kata-deploy`) is built without
-`CONFIG_SECURITY_LANDLOCK=y`. Attempting to run nono inside a Kata VM with
-the default kernel will fail — nono cannot apply Landlock restrictions and
-will exit with an error.
+Kata Containers 4.0 or later is required. From that release every guest kernel is
+built with `CONFIG_SECURITY_LANDLOCK=y`
+(`tools/packaging/kernel/configs/fragments/common/landlock.conf`), so the kernel
+`kata-deploy` ships is used unchanged and kubefence installs no kernel of its own.
 
-Kata Containers 4.0 and later build every guest kernel with
-`CONFIG_SECURITY_LANDLOCK=y` (`tools/packaging/kernel/configs/fragments/common/landlock.conf`),
-so the kernel kata-deploy ships is used unchanged. Kata releases before 4.0 are
-not supported: their guest kernels have Landlock compiled out and nono cannot
-enforce anything inside the VM.
+Earlier Kata releases are not supported: their guest kernels have Landlock
+compiled out, so nono cannot apply any restriction inside the VM and exits with
+an error. They also lack the composable-VM-images support that delivers the
+hardened kata-agent policy.
 
 ## /nono directory must not exist in container images
 

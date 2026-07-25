@@ -374,8 +374,8 @@ fi
 
 echo ""
 
-# ── Test 6: kata-nono-sandbox/kata-nono-qemu (embedded nono in VM rootfs) ────
-echo "── Test 6: kata-nono-sandbox (embedded nono in VM rootfs) ──────────────"
+# ── Test 6: kata-nono-sandbox/kata-nono-qemu (nono guest extension) ──────────
+echo "── Test 6: kata-nono-sandbox (nono guest extension) ────────────────────"
 
 KATA_QEMU_RC=$(kubectl get runtimeclass kata-nono-sandbox --no-headers 2>/dev/null | awk '{print $1}' || echo "")
 if [[ -z "$KATA_QEMU_RC" ]]; then

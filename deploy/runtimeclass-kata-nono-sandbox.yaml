@@ -1,4 +1,4 @@
-# Kata Containers with nono pre-installed in the VM guest rootfs.
+# Kata Containers with the hardened kata-agent policy from the nono guest extension.
 # Uses the kata-nono-qemu handler which points to a dedicated kata QEMU config
 # referencing the nono guest extension image (kata-nono-extension.img).
 # The nono binary lives at /nono/nono inside the VM; the NRI plugin wraps PID 1
