@@ -20,6 +20,9 @@ spec:
         app.kubernetes.io/component: kata-setup
     spec:
       automountServiceAccountToken: false
+      # Needed for `nsenter -t 1` to reach the host's PID 1, and through it the
+      # host's systemd, to restart containerd after patching its config.
+      hostPID: true
       initContainers:
 
         # ── 1. Wait for kata-deploy ──────────────────────────────────────────
@@ -65,8 +68,8 @@ spec:
               mountPath: {{ .Values.kata.shareDir }}
 
         # ── 3. Patch kata config and register containerd handler ─────────────
-        # Privileged so it can write to host-owned kata config files and send
-        # SIGHUP to containerd for config reload without a full restart.
+        # Privileged so it can write to host-owned kata config files and reach
+        # the host's systemd to restart containerd.
         - name: configure-kata
           image: {{ .Values.helperImages.alpine | quote }}
           securityContext:
@@ -173,15 +176,15 @@ spec:
               TOMLEOF
                 echo "Registered kata-nono-qemu in ${CONTAINERD_CFG}."
 
-                # ── Reload containerd config via SIGHUP ──────────────────────
-                CONTAINERD_PID=$(cat /run/containerd/containerd.pid 2>/dev/null || true)
-                if [ -n "${CONTAINERD_PID}" ]; then
-                  kill -HUP "${CONTAINERD_PID}" \
-                    && echo "Sent SIGHUP to containerd (PID ${CONTAINERD_PID})." \
-                    || echo "Warning: SIGHUP failed — manual containerd reload may be needed."
-                else
-                  echo "Warning: containerd PID not found — manual reload required."
-                fi
+                # ── Make containerd load the new handler ─────────────────────
+                # A supervised restart through the host's systemd. Not SIGHUP:
+                # containerd does not handle it, so the default disposition
+                # kills the daemon and the node only recovers if the unit
+                # happens to set Restart=always. The restart also kills this
+                # init container — the DaemonSet retries it and the retry
+                # short-circuits on the "already registered" branch above.
+                nsenter -t 1 -m -u -i -n -p -- systemctl restart containerd \
+                  || echo "Warning: containerd restart failed — reload manually."
               fi
           volumeMounts:
             - name: kata-share
@@ -190,9 +193,6 @@ spec:
               mountPath: {{ .Values.kata.qemuConfigPath | dir }}
             - name: containerd-config-dir
               mountPath: {{ .Values.containerdConfigPath | dir }}
-            - name: run-containerd
-              mountPath: /run/containerd
-              readOnly: true
 
       # Long-running container keeps the pod alive so DaemonSet rollout status
       # reflects node readiness and kubectl can inspect logs.
@@ -221,9 +221,5 @@ spec:
         - name: containerd-config-dir
           hostPath:
             path: {{ .Values.containerdConfigPath | dir }}
-            type: DirectoryOrCreate
-        - name: run-containerd
-          hostPath:
-            path: /run/containerd
             type: DirectoryOrCreate
 {{- end }}
