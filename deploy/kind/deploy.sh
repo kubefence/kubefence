@@ -344,12 +344,20 @@ if [[ "$KATA" == "true" ]]; then
     # extension. It must be appended to kernel_params rather than replacing it,
     # and note that the agent stops parsing the command line at this parameter —
     # any other agent.* setting has to go inside agent-config.toml instead.
+    #
+    # disable_guest_seccomp must be false or the kata-agent ignores the OCI
+    # seccomp profile that nono-nri injects, and the container runs inside the VM
+    # with no filter at all (Seccomp: 0). kata ships it as true, so it has to be
+    # flipped explicitly — the Helm chart does the same thing.
     KATA_CFG_NONO="$(dirname ${KATA_CFG})/configuration-kata-nono-qemu.toml"
     docker exec "$NODE" sh -c "
       cp '${KATA_CFG}' '${KATA_CFG_NONO}'
       sed -i 's|^kernel_params = \"\(.*\)\"|kernel_params = \"\1 agent.config_file=/run/kata-extensions/nono/agent-config.toml\"|' '${KATA_CFG_NONO}'
       grep -q '^kernel_params' '${KATA_CFG_NONO}' || \
         sed -i 's|\(\[hypervisor.qemu\]\)|\1\nkernel_params = \"agent.config_file=/run/kata-extensions/nono/agent-config.toml\"|' '${KATA_CFG_NONO}'
+      sed -i 's|^disable_guest_seccomp = .*|disable_guest_seccomp = false|' '${KATA_CFG_NONO}'
+      grep -q '^disable_guest_seccomp' '${KATA_CFG_NONO}' || \
+        sed -i 's|\(\[hypervisor.qemu\]\)|\1\ndisable_guest_seccomp = false|' '${KATA_CFG_NONO}'
       cat >> '${KATA_CFG_NONO}' <<EOF
 
 [[hypervisor.qemu.guest_extension_images]]
@@ -361,6 +369,10 @@ EOF
     docker exec "$NODE" grep -q 'agent.config_file=/run/kata-extensions/nono' "${KATA_CFG_NONO}" || {
       echo "ERROR: failed to add agent.config_file to ${KATA_CFG_NONO}"
       docker exec "$NODE" grep -n 'kernel_params' "${KATA_CFG_NONO}" || true
+      exit 1
+    }
+    docker exec "$NODE" grep -q '^disable_guest_seccomp = false' "${KATA_CFG_NONO}" || {
+      echo "ERROR: guest seccomp still disabled in ${KATA_CFG_NONO} — the injected seccomp profile would be ignored inside the VM"
       exit 1
     }
     echo "    Created ${KATA_CFG_NONO} with the nono guest extension."
