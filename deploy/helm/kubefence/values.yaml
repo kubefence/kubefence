@@ -126,6 +126,8 @@ kata:
     # the host. If a guest VM escape occurs, the attacker can only use this
     # restricted syscall set. spawn=deny is the most critical flag: it prevents
     # QEMU from exec'ing host binaries after a hypothetical escape.
+    # Written to seccomp_sandbox in the kata config — runtime-rs's spelling, not
+    # the Go runtime's seccompsandbox, which it parses to "" and ignores.
     # Set to "" to disable (not recommended for production).
     seccompSandbox: "on,obsolete=deny,spawn=deny,resourcecontrol=deny"
     # disableGuestSeccomp maps to disable_guest_seccomp in the kata QEMU config.

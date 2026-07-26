@@ -137,12 +137,16 @@ spec:
               # Restricts syscalls the QEMU process can make on the host.
               # spawn=deny prevents QEMU from exec'ing host binaries after a
               # hypothetical VM escape; elevateprivileges=deny prevents setuid.
-              if grep -q '^seccompsandbox' "${KATA_CFG_NONO}"; then
-                sed -i "s|^seccompsandbox = .*|seccompsandbox = \"{{ .Values.kata.qemu.seccompSandbox }}\"|" "${KATA_CFG_NONO}"
-              else
-                sed -i "s|\(\[hypervisor\.qemu\]\)|\1\nseccompsandbox = \"{{ .Values.kata.qemu.seccompSandbox }}\"|" "${KATA_CFG_NONO}"
-              fi
-              echo "Set seccompsandbox in ${KATA_CFG_NONO}."
+              #
+              # Replace the key in place: kata ships seccomp_sandbox empty, and
+              # a second copy is a duplicate TOML key that makes sandbox
+              # creation fail outright.
+              sed -i "s|^seccomp_sandbox = .*|seccomp_sandbox = \"{{ .Values.kata.qemu.seccompSandbox }}\"|" "${KATA_CFG_NONO}"
+              grep -q "^seccomp_sandbox = \"{{ .Values.kata.qemu.seccompSandbox }}\"" "${KATA_CFG_NONO}" || {
+                echo "ERROR: failed to set seccomp_sandbox in ${KATA_CFG_NONO} — QEMU would run unconfined on the host" >&2
+                exit 1
+              }
+              echo "Set seccomp_sandbox in ${KATA_CFG_NONO}."
               {{- end }}
 
               # ── Enable guest seccomp so kata-agent applies OCI profiles ───

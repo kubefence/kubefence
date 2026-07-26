@@ -349,7 +349,14 @@ if [[ "$KATA" == "true" ]]; then
     # seccomp profile that nono-nri injects, and the container runs inside the VM
     # with no filter at all (Seccomp: 0). kata ships it as true, so it has to be
     # flipped explicitly — the Helm chart does the same thing.
+    #
+    # seccomp_sandbox confines the QEMU process on the host, so a guest that has
+    # already escaped the VM is contained too. Note the underscore: runtime-rs
+    # parses the Go runtime's seccompsandbox to "" and confines nothing at all,
+    # silently. Keep the value identical to kata.qemu.seccompSandbox in
+    # values.yaml so e2e exercises what a chart install actually runs.
     KATA_CFG_NONO="$(dirname ${KATA_CFG})/configuration-kata-nono-qemu.toml"
+    KATA_QEMU_SECCOMP="on,obsolete=deny,spawn=deny,resourcecontrol=deny"
     docker exec "$NODE" sh -c "
       cp '${KATA_CFG}' '${KATA_CFG_NONO}'
       sed -i 's|^kernel_params = \"\(.*\)\"|kernel_params = \"\1 agent.config_file=/run/kata-extensions/nono/agent-config.toml\"|' '${KATA_CFG_NONO}'
@@ -358,6 +365,7 @@ if [[ "$KATA" == "true" ]]; then
       sed -i 's|^disable_guest_seccomp = .*|disable_guest_seccomp = false|' '${KATA_CFG_NONO}'
       grep -q '^disable_guest_seccomp' '${KATA_CFG_NONO}' || \
         sed -i 's|\(\[hypervisor.qemu\]\)|\1\ndisable_guest_seccomp = false|' '${KATA_CFG_NONO}'
+      sed -i 's|^seccomp_sandbox = .*|seccomp_sandbox = \"${KATA_QEMU_SECCOMP}\"|' '${KATA_CFG_NONO}'
       cat >> '${KATA_CFG_NONO}' <<EOF
 
 [[hypervisor.qemu.guest_extension_images]]
@@ -373,6 +381,10 @@ EOF
     }
     docker exec "$NODE" grep -q '^disable_guest_seccomp = false' "${KATA_CFG_NONO}" || {
       echo "ERROR: guest seccomp still disabled in ${KATA_CFG_NONO} — the injected seccomp profile would be ignored inside the VM"
+      exit 1
+    }
+    docker exec "$NODE" grep -q "^seccomp_sandbox = \"${KATA_QEMU_SECCOMP}\"" "${KATA_CFG_NONO}" || {
+      echo "ERROR: failed to set seccomp_sandbox in ${KATA_CFG_NONO} — QEMU would run unconfined on the host"
       exit 1
     }
     echo "    Created ${KATA_CFG_NONO} with the nono guest extension."
