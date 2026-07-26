@@ -286,11 +286,6 @@ if [[ "$KATA" == "true" ]]; then
   docker exec "$NODE" sh -c "
     sed -i 's|^machine_accelerators = .*|machine_accelerators = \"kernel_irqchip=split\"|' '${KATA_CFG}'
   "
-  # Add machine_accelerators if the line was absent in the default config.
-  docker exec "$NODE" sh -c "
-    grep -q '^machine_accelerators' '${KATA_CFG}' || \
-      sed -i 's|\(\[hypervisor.qemu\]\)|\1\nmachine_accelerators = \"kernel_irqchip=split\"|' '${KATA_CFG}'
-  "
   echo "    Kata QEMU config patched (kernel_irqchip=split)."
 
   # ── kata-nono-qemu: hardened agent policy via a guest extension image ────────
@@ -360,11 +355,7 @@ if [[ "$KATA" == "true" ]]; then
     docker exec "$NODE" sh -c "
       cp '${KATA_CFG}' '${KATA_CFG_NONO}'
       sed -i 's|^kernel_params = \"\(.*\)\"|kernel_params = \"\1 agent.config_file=/run/kata-extensions/nono/agent-config.toml\"|' '${KATA_CFG_NONO}'
-      grep -q '^kernel_params' '${KATA_CFG_NONO}' || \
-        sed -i 's|\(\[hypervisor.qemu\]\)|\1\nkernel_params = \"agent.config_file=/run/kata-extensions/nono/agent-config.toml\"|' '${KATA_CFG_NONO}'
       sed -i 's|^disable_guest_seccomp = .*|disable_guest_seccomp = false|' '${KATA_CFG_NONO}'
-      grep -q '^disable_guest_seccomp' '${KATA_CFG_NONO}' || \
-        sed -i 's|\(\[hypervisor.qemu\]\)|\1\ndisable_guest_seccomp = false|' '${KATA_CFG_NONO}'
       sed -i 's|^seccomp_sandbox = .*|seccomp_sandbox = \"${KATA_QEMU_SECCOMP}\"|' '${KATA_CFG_NONO}'
       cat >> '${KATA_CFG_NONO}' <<EOF
 

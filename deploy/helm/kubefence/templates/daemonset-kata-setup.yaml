@@ -89,12 +89,7 @@ spec:
               # The stock kata guest kernel already has CONFIG_SECURITY_LANDLOCK=y
               # (kata >= 4.0), so `kernel =` is left exactly as kata-deploy wrote it.
               {{- if .Values.kata.qemu.machineAccelerators }}
-              # Set machine_accelerators (update existing line or insert after [hypervisor.qemu]).
-              if grep -q '^machine_accelerators' "${KATA_CFG}"; then
-                sed -i "s|^machine_accelerators = .*|machine_accelerators = \"{{ .Values.kata.qemu.machineAccelerators }}\"|" "${KATA_CFG}"
-              else
-                sed -i "s|\(\[hypervisor\.qemu\]\)|\1\nmachine_accelerators = \"{{ .Values.kata.qemu.machineAccelerators }}\"|" "${KATA_CFG}"
-              fi
+              sed -i "s|^machine_accelerators = .*|machine_accelerators = \"{{ .Values.kata.qemu.machineAccelerators }}\"|" "${KATA_CFG}"
               echo "Set machine_accelerators in ${KATA_CFG}."
               {{- end }}
 
@@ -107,11 +102,7 @@ spec:
               # Appended to kernel_params, never replacing it. Note the agent
               # stops parsing the command line at agent.config_file, so any
               # other agent.* setting must go inside agent-config.toml instead.
-              if grep -q '^kernel_params' "${KATA_CFG_NONO}"; then
-                sed -i "s|^kernel_params = \"\(.*\)\"|kernel_params = \"\1 agent.config_file=${AGENT_CFG}\"|" "${KATA_CFG_NONO}"
-              else
-                sed -i "s|\(\[hypervisor\.qemu\]\)|\1\nkernel_params = \"agent.config_file=${AGENT_CFG}\"|" "${KATA_CFG_NONO}"
-              fi
+              sed -i "s|^kernel_params = \"\(.*\)\"|kernel_params = \"\1 agent.config_file=${AGENT_CFG}\"|" "${KATA_CFG_NONO}"
               grep -q "agent.config_file=${AGENT_CFG}" "${KATA_CFG_NONO}" || {
                 echo "ERROR: failed to add agent.config_file to ${KATA_CFG_NONO}" >&2
                 grep -n 'kernel_params' "${KATA_CFG_NONO}" >&2 || true
@@ -154,11 +145,12 @@ spec:
               # Required for the NRI-injected seccomp_profile to take effect
               # inside the Kata VM (kata-agent reads and applies the OCI spec
               # seccomp field, which NRI writes via SetLinuxSeccompPolicy).
-              if grep -q '^disable_guest_seccomp' "${KATA_CFG_NONO}"; then
-                sed -i "s|^disable_guest_seccomp = .*|disable_guest_seccomp = {{ .Values.kata.qemu.disableGuestSeccomp }}|" "${KATA_CFG_NONO}"
-              else
-                sed -i "s|^\\[hypervisor\\.qemu\\]|[hypervisor.qemu]\\ndisable_guest_seccomp = {{ .Values.kata.qemu.disableGuestSeccomp }}|" "${KATA_CFG_NONO}"
-              fi
+              # It is a [runtime] key, not a [hypervisor.qemu] one.
+              sed -i "s|^disable_guest_seccomp = .*|disable_guest_seccomp = {{ .Values.kata.qemu.disableGuestSeccomp }}|" "${KATA_CFG_NONO}"
+              grep -q "^disable_guest_seccomp = {{ .Values.kata.qemu.disableGuestSeccomp }}" "${KATA_CFG_NONO}" || {
+                echo "ERROR: failed to set disable_guest_seccomp in ${KATA_CFG_NONO} — the injected seccomp profile would be ignored inside the VM" >&2
+                exit 1
+              }
               echo "Set disable_guest_seccomp = {{ .Values.kata.qemu.disableGuestSeccomp }} in ${KATA_CFG_NONO}."
 
               # ── Register kata-nono-qemu handler in containerd config ───────
