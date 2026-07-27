@@ -36,11 +36,15 @@ internal/log/log.go               slog JSON (prod) / text (dev) logger factory; 
 deploy/kind/deploy.sh             Kind cluster + plugin deploy automation
 deploy/kind/e2e.sh                E2E test suite (17 checks)
 deploy/kind/cluster-containerd.yaml   Kind cluster config with NRI enabled
+deploy/kata-extension/policy.rego     Hardened kata-agent OPA policy — guest-side enforcement
+deploy/kata-extension/agent-config.toml   Agent config selecting that policy (agent.config_file)
+deploy/kata-extension/Dockerfile  erofs extension image carrying both; published, not kind-only
 deploy/daemonset.yaml             DaemonSet manifest (init + main containers)
 deploy/runtimeclass-kata.yaml     kata-nono-sandbox RuntimeClass (handler: kata-qemu-runtime-rs)
 deploy/10-nono-nri.toml.example   Annotated TOML config reference
 Dockerfile                        Multi-stage: golang:1.24-alpine builder → alpine:3.20
 .github/workflows/release.yaml    CI: builds static nono from source, builds + pushes to ghcr.io
+.github/workflows/kata-extension.yaml   CI: builds + pushes the guest extension image
 scripts/build-nono.sh             builds nono from always-further/nono source; glibc by default
                                   (BUILD_TARGET=musl for fully static); patches keyring to drop
                                   libdbus (sync-secret-service disabled)
@@ -335,7 +339,7 @@ The NRI socket mount is read-only because the plugin connects *to* containerd
   virtiofs bind-mount (same bind-mount mechanism, virtiofsd makes host path
   visible inside the QEMU VM).
 - The `kata-nono-qemu` handler adds the hardened kata-agent OPA policy on top,
-  delivered as a composable-VM-images extension (`deploy/kind/kata-extension/`):
+  delivered as a composable-VM-images extension (`deploy/kata-extension/`):
   an unmeasured erofs image declared via `[[hypervisor.qemu.guest_extension_images]]`
   with `verity_params = ""`, cold-plugged as read-only virtio-blk and mounted by
   the guest at `/run/kata-extensions/nono` before `kata-agent.service` starts.

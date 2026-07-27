@@ -25,7 +25,7 @@
 #
 # Usage:
 #   docker build -t ghcr.io/yourorg/kata-nono-extension:latest \
-#     deploy/kind/kata-extension/
+#     deploy/kata-extension/
 #
 # The resulting image (FROM scratch) contains a single file:
 #   /kata-nono-extension.img

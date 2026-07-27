@@ -60,7 +60,7 @@ spec:
 
 This gives you two enforcement layers: Landlock filesystem confinement inside the
 VM, and `kubectl exec` blocked at the hypervisor by the kata-agent OPA policy
-(`deploy/kind/kata-extension/policy.rego`).
+(`deploy/kata-extension/policy.rego`).
 
 **runc opt-in** (no KVM required, no exec blocking):
 

@@ -17,10 +17,10 @@ on:
   push:
     branches: [main, master]
     paths:
-      - "deploy/kind/kata-extension/Dockerfile"
-      - "deploy/kind/kata-extension/policy.rego"
-      - "deploy/kind/kata-extension/policy_test.rego"
-      - "deploy/kind/kata-extension/agent-config.toml"
+      - "deploy/kata-extension/Dockerfile"
+      - "deploy/kata-extension/policy.rego"
+      - "deploy/kata-extension/policy_test.rego"
+      - "deploy/kata-extension/agent-config.toml"
       - ".github/workflows/kata-extension.yaml"
 
 env:
@@ -60,7 +60,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
-          context: deploy/kind/kata-extension
+          context: deploy/kata-extension
           push: true
           platforms: linux/amd64
           tags: |

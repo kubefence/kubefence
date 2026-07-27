@@ -3,7 +3,7 @@
 **Date:** 2026-05-05
 **Cluster:** `ai-pg` (k8s v1.31.14, single-node)
 **Runtime class:** `kata-nono-sandbox` → handler `kata-nono-qemu`
-**Policy:** hardened `policy.rego` (now `deploy/kind/kata-extension/policy.rego`),
+**Policy:** hardened `policy.rego` (now `deploy/kata-extension/policy.rego`),
 at the time injected into the guest rootfs image via the since-removed `inject.sh`.
 The policy text is unchanged; only its delivery mechanism has since moved to the
 nono guest extension image.

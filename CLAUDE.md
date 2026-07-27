@@ -349,7 +349,7 @@ is opt-in, not the other way around.
 - Validation: validPathComponent() rejects empty, ".", "..", and path separators on podUID and containerID before path construction
 - JSON schema: ContainerMetadata with container_id, pod, namespace, profile, timestamp
 - Purpose: Deliver the hardened kata-agent OPA policy to Kata guests
-- Examples: `deploy/kind/kata-extension/` (erofs extension image + agent-config.toml)
+- Examples: `deploy/kata-extension/` (erofs extension image + agent-config.toml)
 - Pattern: kata `guest_extension_images` cold-plugs the image as read-only virtio-blk; the guest mounts it at /run/kata-extensions/nono before kata-agent starts, and `agent.config_file` in kernel_params points the agent at the policy inside it
 - Rationale: The stock kata guest image and kernel stay unmodified; nono itself is always delivered by host bind-mount (virtiofs for Kata)
 ## Entry Points

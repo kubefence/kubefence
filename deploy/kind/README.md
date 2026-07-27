@@ -63,6 +63,8 @@ The deploy script performs these extra steps when `KATA=true`:
    - Sets `machine_accelerators = "kernel_irqchip=split"` (required for nested-KVM with Kind).
    - Leaves `kernel` untouched — the stock kata kernel already has Landlock.
 4. **Installs the nono guest extension** (when `KATA_EXTENSION=true`, the default):
+   builds or pulls the image from [`deploy/kata-extension/`](../kata-extension/) —
+   it is a published artefact the Helm chart uses on any cluster, not kind tooling —
    copies `kata-nono-extension.img` onto the node, then writes
    `configuration-kata-nono-qemu.toml` — a copy of the QEMU config plus a
    `[[hypervisor.qemu.guest_extension_images]]` entry and

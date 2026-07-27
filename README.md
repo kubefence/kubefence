@@ -189,7 +189,7 @@ spec:
 
 This gives two enforcement layers: Landlock filesystem confinement inside
 the VM, and `kubectl exec` blocked at the hypervisor by the kata-agent OPA
-policy (`deploy/kind/kata-extension/policy.rego`).
+policy (`deploy/kata-extension/policy.rego`).
 
 Optionally override the nono profile per pod:
 

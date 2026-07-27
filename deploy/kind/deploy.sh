@@ -313,7 +313,7 @@ if [[ "$KATA" == "true" ]]; then
       # kB of erofs built from two text files, so it is always cheap enough to
       # build locally and no host-side cache is worth the staleness risk.
       echo "    Pre-built image not available — building locally..."
-      docker build -q -t kata-nono-extension:local "${SCRIPT_DIR}/kata-extension" >/dev/null
+      docker build -q -t kata-nono-extension:local "${REPO_ROOT}/deploy/kata-extension" >/dev/null
       _CTR=$(docker create kata-nono-extension:local)
       docker cp "${_CTR}:/kata-nono-extension.img" "${KATA_EXT_CACHE}"
       docker rm "${_CTR}" >/dev/null
