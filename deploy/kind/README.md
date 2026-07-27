@@ -178,7 +178,7 @@ RUNTIME=crio bash deploy/kind/deploy.sh
 | `KATA` | `false` | Install Kata Containers (`true`/`false`). |
 | `KATA_VERSION` | `4.0.0` | kata-containers release to install. 4.0.0 is the minimum: earlier guest kernels have Landlock compiled out and have no composable-image support. |
 | `KATA_EXTENSION` | `true` | Deploy the nono guest extension image carrying the hardened kata-agent policy (requires `KATA=true`). |
-| `KATA_EXTENSION_IMAGE` | auto | Pre-built extension image (e.g. `ghcr.io/yourorg/kata-nono-extension:latest`). Derived from the git remote owner when unset; falls back to building it locally (a few seconds). |
+| `KATA_EXTENSION_IMAGE` | _(unset)_ | Pull a published extension image (e.g. `ghcr.io/kubefence/kata-nono-extension:v1.2.3`) instead of building `deploy/kata-extension/`. Unset — the default — builds from the working tree, so e2e tests the `policy.rego` in this checkout. Only set it to check a published image on purpose; a failed pull is an error, not a fallback. |
 | `REGISTRY_NAME` | `nono-nri-registry` | Local registry container name (crio only) |
 | `REGISTRY_PORT` | `5100` | Local registry port on the host (crio only) |
 

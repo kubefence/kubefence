@@ -13,7 +13,8 @@
 #   KATA_VERSION    kata-containers release to install (default: 4.0.0)
 #   KATA_EXTENSION  true to deploy the nono guest extension image, which carries the
 #                   hardened kata-agent policy (requires KATA=true)
-#   KATA_EXTENSION_IMAGE  pre-built extension image; derived from git remote if unset
+#   KATA_EXTENSION_IMAGE  pull this published extension image instead of building
+#                   deploy/kata-extension/ from the working tree
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -293,36 +294,34 @@ if [[ "$KATA" == "true" ]]; then
     echo ""
     echo "==> Deploying kata-nono-sandbox (nono guest extension, kata-nono-qemu handler)..."
 
-    KATA_EXT_CACHE="/tmp/kata-nono-extension.img"
+    KATA_EXT_IMG="/tmp/kata-nono-extension.img"
 
-    # Resolve image name from git remote owner if not overridden.
-    if [ -z "${KATA_EXTENSION_IMAGE}" ]; then
-      _GH_OWNER=$(git -C "${SCRIPT_DIR}" remote get-url origin 2>/dev/null || true \
-        | sed -n 's|.*github\.com[:/]\([^/]*\)/.*|\1|p')
-      KATA_EXTENSION_IMAGE="ghcr.io/${_GH_OWNER:-k8s-nono}/kata-nono-extension:latest"
-    fi
-    echo "    Kata extension image: ${KATA_EXTENSION_IMAGE}"
-
-    if docker pull "${KATA_EXTENSION_IMAGE}" 2>/dev/null; then
-      _CTR=$(docker create "${KATA_EXTENSION_IMAGE}")
-      docker cp "${_CTR}:/kata-nono-extension.img" "${KATA_EXT_CACHE}"
-      docker rm "${_CTR}" >/dev/null
-      echo "    Extension extracted from image."
+    # Build from the working tree by default: this is the dev and test path, so
+    # e2e must exercise the policy.rego in this checkout, never whatever :latest
+    # happens to carry — otherwise a policy change under test is not the thing
+    # tested. Cost is ~0.1 s warm, ~18 s cold, against a deploy of minutes. Set
+    # KATA_EXTENSION_IMAGE to check a published image on purpose.
+    if [ -n "${KATA_EXTENSION_IMAGE}" ]; then
+      echo "    Pulling extension image: ${KATA_EXTENSION_IMAGE}"
+      docker pull -q "${KATA_EXTENSION_IMAGE}" >/dev/null || {
+        echo "ERROR: could not pull ${KATA_EXTENSION_IMAGE}"
+        echo "       Unset KATA_EXTENSION_IMAGE to build from deploy/kata-extension/ instead."
+        exit 1
+      }
+      _EXT_IMG="${KATA_EXTENSION_IMAGE}"
     else
-      # Fallback: build it here. Unlike the rootfs it replaced, this is a few
-      # kB of erofs built from two text files, so it is always cheap enough to
-      # build locally and no host-side cache is worth the staleness risk.
-      echo "    Pre-built image not available — building locally..."
+      echo "    Building extension image from deploy/kata-extension/..."
       docker build -q -t kata-nono-extension:local "${REPO_ROOT}/deploy/kata-extension" >/dev/null
-      _CTR=$(docker create kata-nono-extension:local)
-      docker cp "${_CTR}:/kata-nono-extension.img" "${KATA_EXT_CACHE}"
-      docker rm "${_CTR}" >/dev/null
-      echo "    Local build complete."
+      _EXT_IMG="kata-nono-extension:local"
     fi
+
+    _CTR=$(docker create "${_EXT_IMG}")
+    docker cp "${_CTR}:/kata-nono-extension.img" "${KATA_EXT_IMG}"
+    docker rm "${_CTR}" >/dev/null
 
     # Deploy the extension image onto the node.
     KATA_NONO_EXT="${KATA_SHARE}/kata-nono-extension.img"
-    docker cp "${KATA_EXT_CACHE}" "${NODE}:${KATA_NONO_EXT}"
+    docker cp "${KATA_EXT_IMG}" "${NODE}:${KATA_NONO_EXT}"
     docker exec "$NODE" chmod 644 "${KATA_NONO_EXT}"
     echo "    Deployed: ${KATA_NONO_EXT}"
 
