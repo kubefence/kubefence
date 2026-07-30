@@ -34,6 +34,13 @@ hostPaths:
   nriSocket: /var/run/nri
   nonoHostDir: /opt/nono-nri
   nriPlugins: /opt/nri/plugins
+  # Where the setup DaemonSets record that they have finished with the node.
+  # The plugin waits for those markers before connecting, because a setup
+  # DaemonSet restarting containerd underneath a running plugin drops its NRI
+  # connection, and any pod created in that window starts un-sandboxed.
+  # On tmpfs by design: after a reboot the markers are gone and the setup
+  # DaemonSets re-assert them before the plugin is allowed to start again.
+  readyDir: /run/kubefence
 
 # RuntimeClass creation
 runtimeClasses:

@@ -507,9 +507,12 @@ elif [[ "$KATA" == "true" ]]; then
   )
 fi
 
+# 300s, not 120s: the plugin now gates its own start on the setup DaemonSets
+# publishing their ready markers, and each of those may restart containerd and be
+# retried first, so the release legitimately takes longer to become Ready.
 helm upgrade --install kubefence "$REPO_ROOT/deploy/helm/kubefence" \
   --namespace kube-system \
-  --wait --timeout 120s \
+  --wait --timeout 300s \
   "${HELM_SET_ARGS[@]}"
 
 echo "==> kubefence deployed."
@@ -519,7 +522,7 @@ echo "==> kubefence deployed."
 # so the root cause is visible without a separate kubectl session.
 echo ""
 echo "==> Waiting for DaemonSet rollout..."
-kubectl rollout status daemonset/kubefence -n kube-system --timeout=120s || {
+kubectl rollout status daemonset/kubefence -n kube-system --timeout=300s || {
   echo ""
   echo "ERROR: DaemonSet rollout timed out. Pod diagnostics:"
   kubectl get pods -n kube-system -l app.kubernetes.io/name=kubefence -o wide 2>/dev/null || true

@@ -19,6 +19,63 @@ spec:
       serviceAccountName: {{ include "kubefence.fullname" . }}
       {{- end }}
       initContainers:
+        {{- if or .Values.nodeSetup.enabled .Values.kata.enabled }}
+
+        # ── Wait for node setup to finish ────────────────────────────────────
+        # The setup DaemonSets restart containerd to load their drop-ins. A
+        # restart under a running plugin drops its NRI connection, and although
+        # the plugin reconnects on its own, every pod created in that window
+        # starts with no nono wrapper and no seccomp profile — silently, since
+        # the pod itself comes up fine. Kubernetes has no cross-DaemonSet
+        # ordering, so gate on the markers the setup DaemonSets publish once they
+        # are done restarting anything.
+        #
+        # Times out rather than blocking forever: a plugin that starts late still
+        # converges, whereas one that never starts protects nothing.
+        - name: wait-for-node-setup
+          image: {{ .Values.helperImages.busybox | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              READY_DIR="{{ .Values.hostPaths.readyDir }}"
+              WAIT=300
+              _i=0
+              while [ "${_i}" -lt "${WAIT}" ]; do
+                ok=true
+                {{- if .Values.nodeSetup.enabled }}
+                [ -f "${READY_DIR}/node-setup.done" ] || ok=false
+                {{- end }}
+                {{- if .Values.kata.enabled }}
+                [ -f "${READY_DIR}/kata-setup.done" ] || ok=false
+                {{- end }}
+                # containerd only creates the socket once NRI is enabled, which
+                # is itself one of the things node setup turns on.
+                [ -S /var/run/nri/nri.sock ] || ok=false
+                if [ "${ok}" = "true" ]; then
+                  echo "node setup complete and NRI socket present after ${_i}s."
+                  exit 0
+                fi
+                [ $((_i % 30)) -eq 0 ] && [ "${_i}" -gt 0 ] && \
+                  echo "    still waiting for node setup... (${_i}s)"
+                _i=$((_i + 1))
+                sleep 1
+              done
+              echo "WARNING: node setup markers not present after ${WAIT}s — starting anyway." >&2
+              echo "         Pods created before the plugin connects will not be sandboxed." >&2
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: ready-dir
+              mountPath: {{ .Values.hostPaths.readyDir }}
+              readOnly: true
+            - name: nri-socket
+              mountPath: /var/run/nri
+              readOnly: true
+        {{- end }}
+
         - name: install-nono
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -111,3 +168,9 @@ spec:
           hostPath:
             path: /var/run/nono-nri
             type: DirectoryOrCreate
+        {{- if or .Values.nodeSetup.enabled .Values.kata.enabled }}
+        - name: ready-dir
+          hostPath:
+            path: {{ .Values.hostPaths.readyDir }}
+            type: DirectoryOrCreate
+        {{- end }}

@@ -85,6 +85,12 @@ spec:
               KATA_CFG_DIR="$(dirname ${KATA_CFG})"
               KATA_CFG_NONO="${KATA_CFG_DIR}/configuration-kata-nono-qemu.toml"
               CONTAINERD_CFG="{{ .Values.containerdConfigPath }}"
+              READY="{{ .Values.hostPaths.readyDir }}/kata-setup.done"
+
+              # Retract the marker first: this container may restart containerd
+              # below, and the plugin must not connect through that.
+              mkdir -p "$(dirname ${READY})"
+              rm -f "${READY}"
 
               # The stock kata guest kernel already has CONFIG_SECURITY_LANDLOCK=y
               # (kata >= 4.0), so `kernel =` is left exactly as kata-deploy wrote it.
@@ -201,6 +207,10 @@ spec:
                     || echo "Warning: containerd restart failed — restart manually."
                 fi
               fi
+
+              # Publish the marker last — see the node-setup DaemonSet for why.
+              touch "${READY}"
+              echo "kata setup complete."
           volumeMounts:
             - name: kata-share
               mountPath: {{ .Values.kata.shareDir }}
@@ -208,6 +218,8 @@ spec:
               mountPath: {{ .Values.kata.qemuConfigPath | dir }}
             - name: containerd-config-dir
               mountPath: {{ .Values.containerdConfigPath | dir }}
+            - name: ready-dir
+              mountPath: {{ .Values.hostPaths.readyDir }}
 
       # Long-running container keeps the pod alive so DaemonSet rollout status
       # reflects node readiness and kubectl can inspect logs.
@@ -236,5 +248,9 @@ spec:
         - name: containerd-config-dir
           hostPath:
             path: {{ .Values.containerdConfigPath | dir }}
+            type: DirectoryOrCreate
+        - name: ready-dir
+          hostPath:
+            path: {{ .Values.hostPaths.readyDir }}
             type: DirectoryOrCreate
 {{- end }}

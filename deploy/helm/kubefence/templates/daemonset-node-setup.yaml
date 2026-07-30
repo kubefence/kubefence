@@ -41,9 +41,17 @@ spec:
             - |
               set -euo pipefail
               CFG="{{ .Values.containerdConfigPath }}"
+              READY="{{ .Values.hostPaths.readyDir }}/node-setup.done"
+
+              # Retract the marker first: from here until the marker is rewritten
+              # this node may restart containerd, and the plugin must not be
+              # connecting through that. See hostPaths.readyDir in values.yaml.
+              mkdir -p "$(dirname ${READY})"
+              rm -f "${READY}"
 
               if [ ! -f "${CFG}" ]; then
                 echo "containerd config not found at ${CFG} — skipping."
+                touch "${READY}"
                 exit 0
               fi
 
@@ -98,9 +106,18 @@ spec:
                 nsenter -t 1 -m -u -i -n -p -- systemctl restart containerd \
                   || echo "Warning: containerd restart failed — restart manually."
               fi
+
+              # Publish the marker last. The restart above kills this container
+              # before it gets here, so the marker is only written on the retry
+              # that finds everything already applied and restarts nothing — which
+              # is exactly the point at which the plugin may safely connect.
+              touch "${READY}"
+              echo "node setup complete."
           volumeMounts:
             - name: containerd-config-dir
               mountPath: {{ .Values.containerdConfigPath | dir }}
+            - name: ready-dir
+              mountPath: {{ .Values.hostPaths.readyDir }}
 
       # Long-running container keeps the pod alive for status tracking.
       containers:
@@ -120,5 +137,9 @@ spec:
         - name: containerd-config-dir
           hostPath:
             path: {{ .Values.containerdConfigPath | dir }}
+            type: DirectoryOrCreate
+        - name: ready-dir
+          hostPath:
+            path: {{ .Values.hostPaths.readyDir }}
             type: DirectoryOrCreate
 {{- end }}
