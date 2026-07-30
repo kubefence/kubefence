@@ -48,40 +48,43 @@ spec:
               fi
 
               CHANGED=false
+              DROPIN_DIR="{{ .Values.containerdConfigPath | dir }}/conf.d"
+              DROPIN="${DROPIN_DIR}/40-nono-runc.toml"
+              DROPIN_GLOB="${DROPIN_DIR}/*.toml"
 
-              # ── Enable NRI ─────────────────────────────────────────────────
-              if ! grep -q '"io\.containerd\.nri\.v1\.nri"' "${CFG}"; then
-                cat >> "${CFG}" << 'TOMLEOF'
+              {{- include "kubefence.criPluginName" . | nindent 14 }}
 
+              # ── NRI + the nono-runc handler, as one conf.d drop-in ─────────
+              # conf.d is containerd's own drop-in directory: a stock 2.x config
+              # already imports it and kata-deploy writes its handler there, so on
+              # a stock node config.toml needs no edit at all.
+              #
+              # A drop-in rather than an append to config.toml: rewriting a file
+              # we own is idempotent by construction, cannot collide with the
+              # kata-setup DaemonSet writing the same file, and can be undone by
+              # deleting it. containerd merges imports over the main config, so
+              # this also re-enables NRI if the base config disabled it.
+              mkdir -p "${DROPIN_DIR}"
+              cat > /tmp/dropin.toml << TOMLEOF
               [plugins."io.containerd.nri.v1.nri"]
                 disable = false
                 socket_path = "{{ .Values.nodeSetup.nri.socketPath }}"
                 plugin_path = "{{ .Values.nodeSetup.nri.pluginPath }}"
                 plugin_config_path = "{{ .Values.nodeSetup.nri.configPath }}"
-              TOMLEOF
-                echo "NRI enabled in ${CFG}."
-                CHANGED=true
-              elif grep -A5 '"io\.containerd\.nri\.v1\.nri"' "${CFG}" | grep -q 'disable = true'; then
-                # Section exists but disabled — flip the flag.
-                sed -i '/\[plugins\."io\.containerd\.nri\.v1\.nri"\]/,/^\[/{s/disable = true/disable = false/}' "${CFG}"
-                echo "NRI re-enabled in ${CFG}."
-                CHANGED=true
-              else
-                echo "NRI already enabled."
-              fi
 
-              # ── Register nono-runc handler ─────────────────────────────────
-              if ! grep -q 'runtimes\.nono-runc' "${CFG}"; then
-                cat >> "${CFG}" << 'TOMLEOF'
-
-              [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nono-runc]
+              [plugins."${CRI_PLUGIN}".containerd.runtimes.nono-runc]
                 runtime_type = "io.containerd.runc.v2"
               TOMLEOF
-                echo "nono-runc handler registered in ${CFG}."
-                CHANGED=true
+              if cmp -s /tmp/dropin.toml "${DROPIN}"; then
+                echo "${DROPIN} already up to date."
               else
-                echo "nono-runc already registered."
+                cat /tmp/dropin.toml > "${DROPIN}"
+                echo "Wrote ${DROPIN} (NRI + nono-runc)."
+                CHANGED=true
               fi
+              rm -f /tmp/dropin.toml
+
+              {{- include "kubefence.ensureImportsGlob" . | nindent 14 }}
 
               # ── Restart containerd if anything changed ─────────────────────
               # A supervised restart through the host's systemd. Not SIGHUP:

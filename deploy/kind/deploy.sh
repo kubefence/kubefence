@@ -20,6 +20,41 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# containerd renamed the CRI runtime plugin in the version 3 config schema:
+# handlers live under io.containerd.cri.v1.runtime there and under
+# io.containerd.grpc.v1.cri in a version 2 document. Getting it wrong is quiet —
+# containerd logs "Ignoring unknown key in TOML for plugin", registers nothing,
+# and pods fail with `no runtime for "<handler>" is configured`. kind's node image
+# ships a version 2 config while a stock containerd 2.x config is version 3, so
+# the name is read off the config rather than pinned.
+# Interpolated into the docker exec blocks below; keep it POSIX sh.
+CRI_PLUGIN_NAME='
+    if grep -q "^version[[:space:]]*=[[:space:]]*3" /etc/containerd/config.toml; then
+      CRI_PLUGIN="io.containerd.cri.v1.runtime"
+    else
+      CRI_PLUGIN="io.containerd.grpc.v1.cri"
+    fi'
+
+# containerd only reads a drop-in directory if the glob is listed in the imports
+# array. conf.d is containerd's own: a stock 2.x config already imports it and
+# kata-deploy writes its handler there, so this is a no-op on a stock node.
+# kind's config has no imports key at all, and TOML bare keys must precede the
+# first [table], so the key is prepended rather than appended when created.
+ENSURE_IMPORTS_GLOB='
+    if ! grep -qF "/etc/containerd/conf.d/*.toml" /etc/containerd/config.toml; then
+      if grep -q "^imports" /etc/containerd/config.toml; then
+        sed -i "s|^imports[[:space:]]*=[[:space:]]*\[|imports = [\"/etc/containerd/conf.d/*.toml\", |" /etc/containerd/config.toml
+      else
+        { printf "imports = [\"/etc/containerd/conf.d/*.toml\"]\n"; cat /etc/containerd/config.toml; } > /tmp/ctr-cfg.toml
+        cat /tmp/ctr-cfg.toml > /etc/containerd/config.toml
+        rm -f /tmp/ctr-cfg.toml
+      fi
+      grep -qF "/etc/containerd/conf.d/*.toml" /etc/containerd/config.toml || {
+        echo "ERROR: could not add the conf.d glob to the imports array in /etc/containerd/config.toml" >&2
+        exit 1
+      }
+    fi'
+
 RUNTIME="${RUNTIME:-containerd}"
 CLUSTER_NAME="${CLUSTER_NAME:-nono-${RUNTIME}}"
 IMAGE="${IMAGE:-nono-nri:latest}"
@@ -175,20 +210,26 @@ CONTAINERD_EOF
 fi
 
 if [[ "$RUNTIME" == "containerd" ]]; then
-  # Register nono-runc handler if not already present (idempotent — cluster-containerd.yaml
-  # adds it at creation time, but cluster.yaml and manual clusters may not have it).
+  # Register the nono-runc handler as a conf.d drop-in. Idempotent by
+  # construction — the file is rewritten rather than appended to, so re-running
+  # cannot duplicate the stanza and deleting the file removes the handler.
+  #
+  # 30-, not the chart's 40-nono-runc.toml: this runs before the chart is
+  # installed and its node-setup DaemonSet writes a superset of this file (NRI
+  # as well). Sharing the name would let a deploy.sh re-run clobber the chart's
+  # NRI config. Two files declaring the same handler is fine — containerd
+  # merges imports in glob order and the values are identical.
   docker exec "$NODE" sh -c "
-    if ! grep -q 'runtimes.nono-runc' /etc/containerd/config.toml 2>/dev/null; then
-      cat >> /etc/containerd/config.toml << 'CONTAINERD_EOF'
-[plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.nono-runc]
+    ${CRI_PLUGIN_NAME}
+    mkdir -p /etc/containerd/conf.d
+    cat > /etc/containerd/conf.d/30-nono-runc.toml << CONTAINERD_EOF
+[plugins.\"\${CRI_PLUGIN}\".containerd.runtimes.nono-runc]
   runtime_type = \"io.containerd.runc.v2\"
 CONTAINERD_EOF
-      systemctl restart containerd
-      sleep 3
-      echo \"    containerd restarted with nono-runc handler.\"
-    else
-      echo \"    nono-runc handler already registered — skipping restart.\"
-    fi
+    ${ENSURE_IMPORTS_GLOB}
+    systemctl restart containerd
+    sleep 3
+    echo \"    containerd restarted with the nono-runc drop-in (\${CRI_PLUGIN}).\"
   "
 fi
 
@@ -394,18 +435,23 @@ EOF
       sleep 3
       echo "    CRI-O restarted with kata-nono-qemu handler."
     else
-      # containerd: append stanza and restart.
+      # containerd: a drop-in in conf.d, the same directory and plugin name
+      # kata-deploy uses for its own handler, and the CRI-O branch above already
+      # works this way. Appending to config.toml made the edit non-idempotent
+      # (hence the grep guard it needed) and left the handler unremovable.
       docker exec "$NODE" sh -c "
-        cat >> /etc/containerd/config.toml << 'CONTAINERD_EOF'
-
-[plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.kata-nono-qemu]
+        ${CRI_PLUGIN_NAME}
+        mkdir -p /etc/containerd/conf.d
+        cat > /etc/containerd/conf.d/50-nono-kata.toml << CONTAINERD_EOF
+[plugins.\"\${CRI_PLUGIN}\".containerd.runtimes.kata-nono-qemu]
   runtime_type = \"io.containerd.kata-qemu-runtime-rs.v2\"
   runtime_path = \"/opt/kata/runtime-rs/bin/containerd-shim-kata-v2\"
   privileged_without_host_devices = true
   pod_annotations = [\"io.katacontainers.*\"]
-  [plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.kata-nono-qemu.options]
+  [plugins.\"\${CRI_PLUGIN}\".containerd.runtimes.kata-nono-qemu.options]
     ConfigPath = \"${KATA_CFG_NONO}\"
 CONTAINERD_EOF
+        ${ENSURE_IMPORTS_GLOB}
         systemctl restart containerd
       "
       sleep 3

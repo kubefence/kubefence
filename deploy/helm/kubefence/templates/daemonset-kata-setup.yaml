@@ -154,33 +154,52 @@ spec:
               echo "Set disable_guest_seccomp = {{ .Values.kata.qemu.disableGuestSeccomp }} in ${KATA_CFG_NONO}."
 
               # ── Register kata-nono-qemu handler in containerd config ───────
-              # Idempotent: skip if stanza already present.
+              # A conf.d drop-in, in the same directory and under the same plugin
+              # name kata-deploy uses for its own handler. Rewriting a file we own
+              # is idempotent by construction, cannot collide with the node-setup
+              # DaemonSet writing its own drop-in, and can be undone by deleting it.
               if [ ! -f "${CONTAINERD_CFG}" ]; then
                 echo "Warning: containerd config not found at ${CONTAINERD_CFG} — skipping handler registration."
-              elif grep -q 'runtimes\.kata-nono-qemu' "${CONTAINERD_CFG}"; then
-                echo "kata-nono-qemu already registered in ${CONTAINERD_CFG}."
               else
-                cat >> "${CONTAINERD_CFG}" << TOMLEOF
+                CFG="${CONTAINERD_CFG}"
+                DROPIN_DIR="$(dirname ${CONTAINERD_CFG})/conf.d"
+                DROPIN="${DROPIN_DIR}/50-nono-kata.toml"
+                DROPIN_GLOB="${DROPIN_DIR}/*.toml"
+                CHANGED=false
 
-              [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kata-nono-qemu]
+                {{- include "kubefence.criPluginName" . | nindent 16 }}
+
+                mkdir -p "${DROPIN_DIR}"
+                cat > /tmp/dropin.toml << TOMLEOF
+              [plugins."${CRI_PLUGIN}".containerd.runtimes.kata-nono-qemu]
                 runtime_type = "io.containerd.kata-qemu-runtime-rs.v2"
                 runtime_path = "/opt/kata/runtime-rs/bin/containerd-shim-kata-v2"
                 privileged_without_host_devices = true
                 pod_annotations = ["io.katacontainers.*"]
-                [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kata-nono-qemu.options]
+                [plugins."${CRI_PLUGIN}".containerd.runtimes.kata-nono-qemu.options]
                   ConfigPath = "${KATA_CFG_NONO}"
               TOMLEOF
-                echo "Registered kata-nono-qemu in ${CONTAINERD_CFG}."
+                if cmp -s /tmp/dropin.toml "${DROPIN}"; then
+                  echo "${DROPIN} already up to date."
+                else
+                  cat /tmp/dropin.toml > "${DROPIN}"
+                  echo "Wrote ${DROPIN} (kata-nono-qemu)."
+                  CHANGED=true
+                fi
+                rm -f /tmp/dropin.toml
+                {{- include "kubefence.ensureImportsGlob" . | nindent 16 }}
 
                 # ── Make containerd load the new handler ─────────────────────
                 # A supervised restart through the host's systemd. Not SIGHUP:
                 # containerd does not handle it, so the default disposition
                 # kills the daemon and the node only recovers if the unit
                 # happens to set Restart=always. The restart also kills this
-                # init container — the DaemonSet retries it and the retry
-                # short-circuits on the "already registered" branch above.
-                nsenter -t 1 -m -u -i -n -p -- systemctl restart containerd \
-                  || echo "Warning: containerd restart failed — reload manually."
+                # init container — the DaemonSet retries it and the retry finds
+                # the drop-in already current and exits without restarting.
+                if [ "${CHANGED}" = "true" ]; then
+                  nsenter -t 1 -m -u -i -n -p -- systemctl restart containerd \
+                    || echo "Warning: containerd restart failed — restart manually."
+                fi
               fi
           volumeMounts:
             - name: kata-share
