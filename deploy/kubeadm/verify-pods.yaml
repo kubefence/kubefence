@@ -1,0 +1,53 @@
+# Verification pods for a stock-containerd node — see README.md step 4.
+#
+# The image must be glibc-based: the shipped nono is a glibc binary, so an alpine
+# or busybox-uclibc image exits 2 with an empty log once nono is injected.
+#
+# v-runc and v-kata reaching Ready is itself the assertion that both handlers are
+# registered. v-kata-plain is the discriminator for the guest extension: a bare
+# `kubectl exec` must be denied on v-kata and must succeed here, since kata's
+# default policy is allow-all.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: v-runc
+  namespace: default
+  annotations:
+    nono.sh/profile: "default"
+spec:
+  runtimeClassName: nono-runc
+  restartPolicy: Never
+  containers:
+    - name: test
+      image: ubuntu:24.04
+      command: ["sleep", "infinity"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: v-kata
+  namespace: default
+  annotations:
+    nono.sh/profile: "default"
+spec:
+  runtimeClassName: kata-nono-sandbox
+  restartPolicy: Never
+  containers:
+    - name: test
+      image: ubuntu:24.04
+      command: ["sleep", "infinity"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: v-kata-plain
+  namespace: default
+  annotations:
+    nono.sh/profile: "default"
+spec:
+  runtimeClassName: kata-qemu-runtime-rs
+  restartPolicy: Never
+  containers:
+    - name: test
+      image: ubuntu:24.04
+      command: ["sleep", "infinity"]
