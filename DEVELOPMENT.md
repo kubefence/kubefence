@@ -92,21 +92,25 @@ See [`deploy/kind/README.md`](deploy/kind/README.md) for full Kind deployment do
 
 ```bash
 # Full cycle (deploy + test + teardown)
-make kind-e2e                    # 17 checks (runc only)
-make kind-e2e KATA=true          # 20 checks (runc + Kata Containers)
-make kind-e2e RUNTIME=crio       # 16/17 pass; Kata tests skipped (see note below)
+make kind-e2e                    # Kata + guest extension by default: 29 checks
+make kind-e2e KATA=false         # runc only; Kata tests (5-7) skipped
+make kind-e2e RUNTIME=crio       # Kata tests skipped (see note below)
 
 # Test against an existing cluster
 make kind-test
 ```
 
-> **CRI-O + Kata in kind:** Kata Containers tests (Tests 5/6) do not pass when
-> `RUNTIME=crio`. The `quay.io/confidential-containers/kind-crio` image uses
-> fuse-overlayfs as CRI-O's storage driver inside Docker. CRI-O calls
-> `Unmount()` on the container overlay immediately after `StartContainer` while
-> the kata shim's virtiofsd bind-mount still holds a reference, causing the
-> sandbox to be torn down. This is a CRI-O 1.35 + kata 3.28 storage lifecycle
-> incompatibility that does not affect bare-metal CRI-O deployments.
+The suite skips the Kata tests when the `kata-nono-sandbox` RuntimeClass is
+absent, so the total reported depends on what was deployed.
+
+> **CRI-O + Kata in kind:** the Kata tests do not pass when `RUNTIME=crio`. The
+> `quay.io/confidential-containers/kind-crio` image uses fuse-overlayfs as
+> CRI-O's storage driver inside Docker. CRI-O calls `Unmount()` on the container
+> overlay immediately after `StartContainer` while the kata shim's virtiofsd
+> bind-mount still holds a reference, causing the sandbox to be torn down. This
+> was a CRI-O 1.35 + kata 3.28 storage lifecycle incompatibility that does not
+> affect bare-metal CRI-O deployments; it has not been re-tested against the
+> current kata 4.0.0 pin.
 
 ## Project Layout
 
@@ -125,13 +129,23 @@ internal/nri/
   state.go             # Per-container metadata dir lifecycle
 internal/log/          # slog JSON handler factory
 deploy/
+  helm/kubefence/      # the chart: plugin + node-setup + kata-setup DaemonSets
   daemonset.yaml       # Kubernetes DaemonSet (plugin + init container)
-  runtimeclass-kata.yaml  # RuntimeClass: kata-nono-sandbox / handler: kata-qemu-runtime-rs
-  test-pod.yaml        # Sample sandboxed pod for verification
+  runtimeclass-kata.yaml  # kata-nono-sandbox → handler kata-qemu-runtime-rs (NRI only)
+  runtimeclass-kata-nono-sandbox.yaml  # same name → handler kata-nono-qemu (+ extension)
+  test-pod.yaml        # Sample sandboxed pod for verification (glibc image)
   crio-nri.conf        # CRI-O NRI config snippet
   containerd-config.toml  # containerd NRI config snippet
+  kata-extension/      # guest extension image: policy.rego + agent-config.toml
   kind/                # Kind cluster configs, deploy.sh, e2e.sh
+  kubeadm/             # stock-containerd harness — the schema kind cannot cover
 ```
+
+`deploy/kubeadm/` is the second test harness: kind's node image ships a
+`version = 2` containerd config, so the kind suite cannot catch a drop-in written
+under the wrong CRI plugin name for the `version = 3` schema a real node runs.
+Run it before releasing changes to how containerd config is written — see
+[`deploy/kubeadm/README.md`](deploy/kubeadm/README.md).
 
 ## CI
 

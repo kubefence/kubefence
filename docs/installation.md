@@ -8,6 +8,7 @@
 | containerd | 2.2.0+ | NRI with `AdjustArgs` support required |
 | CRI-O | 1.35+ | NRI with `AdjustArgs` support required |
 | Helm | 3.x | For chart installation |
+| Kata Containers | 4.0.0+ | Kata path only. Earlier guest kernels have Landlock compiled out and have no composable-image support |
 | KVM | — | Required for Kata path only; `/dev/kvm` must be available on nodes |
 
 Only one of containerd or CRI-O is required. containerd 2.2.0+ is the tested
@@ -34,6 +35,11 @@ OPA policy. The nono Landlock sandbox runs inside the VM.
     kubefence kata-setup DaemonSet waits for kata-deploy's configuration files
     to appear before proceeding.
 
+Enable the `qemu-runtime-rs` shim — the kata 4.0 default, and the only one that
+supports the `guest_extension_images` mechanism kubefence delivers the hardened
+kata-agent policy through. `defaultShim` must name a shim enabled above or
+kata-deploy refuses to start.
+
 ```bash
 helm upgrade --install kata-deploy \
   oci://ghcr.io/kata-containers/kata-deploy-charts/kata-deploy \
@@ -41,11 +47,20 @@ helm upgrade --install kata-deploy \
   --namespace kube-system \
   --set k8sDistribution=k8s \
   --set shims.disableAll=true \
-  --set shims.qemu.enabled=true \
+  --set 'shims.qemu-runtime-rs.enabled=true' \
+  --set defaultShim.amd64=qemu-runtime-rs \
   --wait --timeout 10m
 
 kubectl rollout status daemonset/kata-deploy -n kube-system --timeout=5m
 ```
+
+!!! warning
+    The Go-runtime shim (`shims.qemu.enabled`) registers the handler
+    `kata-qemu`, not `kata-qemu-runtime-rs`, and has no
+    `guest_extension_images` support. The chart's kata defaults —
+    `runtimeClasses.kataNono.handler` and `kata.qemuConfigPath` — assume
+    runtime-rs, so kata-setup would wait indefinitely for a config file that
+    never appears.
 
 ### Step 2 — Install kubefence with Kata support
 
@@ -65,7 +80,9 @@ The `kata-setup` DaemonSet will:
 
 - Pull `ghcr.io/kubefence/kata-nono-extension:latest` and install the nono
   guest extension image onto each node
-- Create `configuration-kata-nono-qemu.toml` referencing the nono rootfs
+- Create `configuration-kata-nono-qemu.toml` — a copy of the kata QEMU config
+  that cold-plugs the extension image and points `agent.config_file` at the
+  policy inside it
 - Register the `kata-nono-qemu` runtime handler in containerd
 
 ### Step 3 — Verify
@@ -78,6 +95,12 @@ kubectl rollout status daemonset/kubefence              -n kube-system
 # Two RuntimeClasses should exist
 kubectl get runtimeclass nono-runc kata-nono-sandbox
 ```
+
+!!! note
+    The plugin DaemonSet gates on the setup DaemonSets finishing, so it stays in
+    `Init:0/2` until both have published their markers under `/run/kubefence`.
+    Rolling out the setup DaemonSets first is expected, not a hang — see
+    [Architecture](architecture.md#daemonset-architecture).
 
 ---
 
@@ -133,6 +156,17 @@ helm uninstall kata-deploy -n kube-system
 
 !!! note
     Uninstalling kubefence does not remove the nono binary from host paths
-    (`/opt/nono-nri/nono`) or undo containerd config changes applied by the
-    node-setup DaemonSet. Restart containerd after uninstall if you need to
-    fully restore the original configuration.
+    (`/opt/nono-nri/nono`) or the containerd drop-ins written by the setup
+    DaemonSets. Those are files of their own, so undoing them is a delete:
+
+    ```bash
+    # On each node
+    sudo rm -f /etc/containerd/conf.d/40-nono-runc.toml \
+               /etc/containerd/conf.d/50-nono-kata.toml
+    sudo rm -rf /opt/nono-nri /run/kubefence
+    sudo systemctl restart containerd
+    ```
+
+    `/etc/containerd/config.toml` itself is normally untouched — the only edit
+    the DaemonSets make there is adding `/etc/containerd/conf.d/*.toml` to the
+    `imports` array, and a stock containerd 2.x config already lists it.

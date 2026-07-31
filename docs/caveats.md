@@ -42,6 +42,16 @@ its rootfs, the mount may behave unexpectedly.
     a pre-existing path with different content or permissions can cause mount
     conflicts.
 
+## Workload images must be glibc-based
+
+The nono binary shipped in the plugin image is glibc-linked, and it is
+bind-mounted into the container rather than built against it. On a musl image
+(alpine, `busybox:*-uclibc`) it cannot start, so the container exits immediately
+with code 2 and no logs — the pod looks like it crashed on its own command.
+
+Build a musl-static nono (`BUILD_TARGET=musl make nono-build`) if you need to
+sandbox alpine-based workloads.
+
 ## exec interception is partial for runc
 
 kubefence prepends `/nono` to the container's `PATH` so that wrapper scripts
@@ -62,13 +72,17 @@ exec'd processes as well. Callers must invoke exec as:
 Landlock LSM restricts filesystem access. kubefence does not restrict:
 
 - **Network access** — workloads can make arbitrary network connections
-- **Syscalls** — beyond what seccomp provides separately (kubefence does not configure seccomp)
 - **Inter-process communication** — shared memory, signals, and IPC are unrestricted
 - **JIT/mmap-based execution** — a workload that bypasses the filesystem entirely is not constrained by Landlock
 
 These are fundamental limitations of Landlock, not gaps in kubefence. For
-network isolation, use Kubernetes NetworkPolicy or a service mesh. For syscall
-filtering, configure a seccomp profile on the pod.
+network isolation, use Kubernetes NetworkPolicy or a service mesh.
+
+Syscall filtering is handled separately: kubefence injects a seccomp profile
+into every sandboxed container (`config.seccompProfile`, `restricted` by
+default — see [Configuration](configuration.md#seccomp_profile-values)). For
+Kata pods this takes effect inside the guest, which requires
+`kata.qemu.disableGuestSeccomp: false` (the default).
 
 ## Profile compatibility: nono wrap vs nono run
 

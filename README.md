@@ -59,10 +59,11 @@ container cannot remove or weaken its own restrictions. Restrictions are also
 inherited across `exec`, so child processes remain confined.
 
 **What is not enforced:**
-nono-nri constrains filesystem access. It does not restrict network access,
-syscalls (beyond what seccomp provides separately), or inter-process
-communication. A workload that bypasses the filesystem entirely (e.g. via
-`mmap`/JIT) is not constrained by Landlock.
+nono-nri constrains filesystem access, and narrows the syscall surface with the
+seccomp profile it injects (`config.seccompProfile`, `restricted` by default). It
+does not restrict network access or inter-process communication. A workload that
+bypasses the filesystem entirely (e.g. via `mmap`/JIT) is not constrained by
+Landlock.
 
 ---
 
@@ -125,10 +126,15 @@ Kata adds a second enforcement layer: each pod runs inside a QEMU/KVM
 micro-VM and `kubectl exec` is blocked at the hypervisor by the kata-agent
 OPA policy. The nono Landlock sandbox runs inside the VM.
 
-**Prerequisites:** containerd 2.2.0+, Linux 5.13+, Helm 3.x, KVM
-(`/dev/kvm` available on nodes).
+**Prerequisites:** containerd 2.2.0+, Linux 5.13+, Helm 3.x, Kata Containers
+4.0.0+, KVM (`/dev/kvm` available on nodes).
 
 **Step 1 — Install kata-deploy**
+
+Enable the `qemu-runtime-rs` shim — the kata 4.0 default, and the only one that
+supports the `guest_extension_images` mechanism kubefence delivers the hardened
+kata-agent policy through. `defaultShim` must name a shim enabled above or
+kata-deploy refuses to start.
 
 ```bash
 helm upgrade --install kata-deploy \
@@ -137,7 +143,8 @@ helm upgrade --install kata-deploy \
   --namespace kube-system \
   --set k8sDistribution=k8s \
   --set shims.disableAll=true \
-  --set shims.qemu.enabled=true \
+  --set 'shims.qemu-runtime-rs.enabled=true' \
+  --set defaultShim.amd64=qemu-runtime-rs \
   --wait --timeout 10m
 
 kubectl rollout status daemonset/kata-deploy -n kube-system --timeout=5m
@@ -163,7 +170,9 @@ helm upgrade --install kubefence \
 The `kata-setup` DaemonSet will:
 - Pull `ghcr.io/kubefence/kata-nono-extension:latest` and install the nono
   guest extension image onto each node
-- Create `configuration-kata-nono-qemu.toml` referencing the nono rootfs
+- Create `configuration-kata-nono-qemu.toml` — a copy of the kata QEMU config
+  that cold-plugs the extension image and points `agent.config_file` at the
+  policy inside it
 - Register the `kata-nono-qemu` runtime handler in containerd
 
 **Step 3 — Verify**
@@ -231,10 +240,14 @@ helm upgrade --install kubefence \
   --namespace kube-system \
   --wait
 
-# Verify all three DaemonSets are ready
+# Verify both DaemonSets are ready
 kubectl rollout status daemonset/kubefence-node-setup -n kube-system
 kubectl rollout status daemonset/kubefence            -n kube-system
 ```
+
+The plugin waits for node setup to finish before connecting to NRI, so a fresh
+install sits in `Init:0/2` for as long as the setup DaemonSet takes to restart
+containerd.
 
 Apply the `nono-runc` RuntimeClass to workloads:
 
@@ -248,26 +261,41 @@ spec:
 
 ## Verify
 
+`deploy/test-pod.yaml` runs on `kata-nono-sandbox`, where the kata-agent policy
+permits `kubectl exec` only through `nono wrap`:
+
 ```bash
 # Apply a test pod
 kubectl apply -f deploy/test-pod.yaml
-kubectl wait --for=condition=ready pod/nono-test --timeout=60s
+kubectl wait --for=condition=ready pod/nono-test --timeout=120s
 
-# nono exec()s into sleep — /proc/1/cmdline shows the original command
-kubectl exec nono-test -- cat /proc/1/cmdline | tr '\0' ' '
-# sleep infinity
+# nono binary is bind-mounted into the container (via virtiofs, for Kata)
+kubectl exec nono-test -- /nono/nono wrap --profile default -- ls -la /nono/nono
+# -rwxr-xr-x 1 0 0 14352424 ... /nono/nono
 
-# nono binary is bind-mounted into the container
+# A bare exec is refused — that denial is the proof the hardened policy is live
 kubectl exec nono-test -- ls -la /nono/nono
-# -rwxr-xr-x 1 root root ... /nono/nono
+# error: ... PERMISSION_DENIED ... "ExecProcessRequest is blocked by policy"
 
 # Check plugin decision logs
-kubectl logs -n kube-system -l app.kubernetes.io/name=kubefence | grep nono-test
+kubectl logs -n kube-system -l 'app.kubernetes.io/name=kubefence,!app.kubernetes.io/component' | grep nono-test
 # {"msg":"injected","decision":"inject","pod":"nono-test","profile":"default",...}
 
 # Cleanup
 kubectl delete pod nono-test
 ```
+
+On `nono-runc` there is no policy gate, so a bare exec works and
+`/proc/1/cmdline` shows the original command — nono `exec()`d into it:
+
+```bash
+kubectl exec <runc-pod> -- cat /proc/1/cmdline | tr '\0' ' '
+# /usr/bin/sleep infinity
+```
+
+> **Note:** use a glibc-based workload image. The shipped nono is glibc-linked,
+> so on alpine or other musl images the container exits immediately with code 2
+> and no logs.
 
 ## Configuration
 

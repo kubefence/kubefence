@@ -29,7 +29,8 @@ kind delete cluster --name nono-containerd
 
 ## Kata Containers deployment
 
-`deploy.sh` can install Kata Containers alongside nono-nri by setting `KATA=true`.
+`deploy.sh` installs Kata Containers alongside nono-nri by default (`KATA=true`;
+set `KATA=false` to skip it).
 It installs Kata via the official helm chart, patches the QEMU config, and
 registers the `kata-nono-sandbox` RuntimeClass — all in one step. The bundled
 guest kernel is used as-is (kata >= 4.0 has Landlock enabled by default).

@@ -44,7 +44,7 @@ These values are rendered into the TOML config file loaded by the plugin.
 | `kata.shareDir` | `/opt/kata/share/kata-containers` | Directory where kata-deploy installs kata share files on each node |
 | `kata.qemuConfigPath` | `/opt/kata/share/defaults/kata-containers/runtime-rs/runtimes/qemu-runtime-rs/configuration-qemu-runtime-rs.toml` | Path to the kata QEMU configuration file written by kata-deploy. runtime-rs configs sit under a `runtime-rs/` prefix |
 | `kata.qemu.machineAccelerators` | `""` | Additional QEMU machine accelerators. Set to `"kernel_irqchip=split"` for nested-KVM environments (e.g. Kind clusters) |
-| `kata.qemu.seccompSandbox` | `"on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny"` | QEMU process-level seccomp sandbox (host kernel). Restricts syscalls available to the QEMU hypervisor process. `spawn=deny` prevents QEMU from exec'ing host binaries after a VM escape. Set to `""` to disable |
+| `kata.qemu.seccompSandbox` | `"on,obsolete=deny,spawn=deny,resourcecontrol=deny"` | QEMU process-level seccomp sandbox (host kernel). Restricts syscalls available to the QEMU hypervisor process. `spawn=deny` prevents QEMU from exec'ing host binaries after a VM escape. Written to `seccomp_sandbox` — runtime-rs's spelling, not the Go runtime's `seccompsandbox`. Set to `""` to disable |
 | `kata.qemu.disableGuestSeccomp` | `false` | Maps to `disable_guest_seccomp` in the kata QEMU config. `false` enables the kata-agent to apply the container's OCI seccomp profile (written by the NRI plugin) inside the guest VM |
 
 ### Node setup
@@ -55,6 +55,16 @@ These values are rendered into the TOML config file loaded by the plugin.
 | `nodeSetup.nri.socketPath` | `/var/run/nri/nri.sock` | NRI socket path to configure in containerd |
 | `nodeSetup.nri.pluginPath` | `/opt/nri/plugins` | NRI plugin path to configure in containerd |
 | `nodeSetup.nri.configPath` | `/etc/nri/conf.d` | NRI config directory to configure in containerd |
+| `containerdConfigPath` | `/etc/containerd/config.toml` | Host path to containerd's config file. Shared by the node-setup and kata-setup DaemonSets. They write drop-ins into its `conf.d` sibling and only edit this file if its `imports` array does not already cover them |
+
+### Host paths
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `hostPaths.nriSocket` | `/var/run/nri` | Directory holding the NRI socket, mounted into the plugin |
+| `hostPaths.nonoHostDir` | `/opt/nono-nri` | Host directory the nono binary and interpreter wrappers are installed into, and the source of the `/nono` bind-mount |
+| `hostPaths.nriPlugins` | `/opt/nri/plugins` | NRI plugin directory on the host |
+| `hostPaths.readyDir` | `/run/kubefence` | Where the setup DaemonSets record that they have finished with the node. The plugin waits for those markers before connecting — see [Startup ordering](architecture.md#startup-ordering). On tmpfs by design, so a reboot forces the setup DaemonSets to re-assert them |
 
 ### Resources
 

@@ -132,7 +132,7 @@ systemctl show -p MainPID --value containerd     # unchanged
 - **Do not restart containerd by hand while judging injection.** The plugin drops
   its NRI connection and reconnects, but pods created in that window start
   un-injected — visibly `Seccomp: 0` with no `/nono/nono`, while still Running.
-- `/proc/1/cmdline` reads empty through the sandbox and a bare `sh -c` fails with
+- `/proc/1/cmdline` reads back `Permission denied` through the sandbox and a bare `sh -c` fails with
   EACCES (`/nono` is first on PATH). Assert on the host-side OCI bundle, and use
   `printenv`.
 

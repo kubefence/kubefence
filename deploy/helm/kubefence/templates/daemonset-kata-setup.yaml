@@ -133,7 +133,7 @@ spec:
               # ── Apply QEMU process-level seccomp sandbox ──────────────────
               # Restricts syscalls the QEMU process can make on the host.
               # spawn=deny prevents QEMU from exec'ing host binaries after a
-              # hypothetical VM escape; elevateprivileges=deny prevents setuid.
+              # hypothetical VM escape.
               #
               # Replace the key in place: kata ships seccomp_sandbox empty, and
               # a second copy is a duplicate TOML key that makes sandbox

@@ -47,10 +47,11 @@ inherited across `exec`, so child processes remain confined.
 
 **What is not enforced:**
 
-nono-nri constrains filesystem access. It does not restrict network access,
-syscalls (beyond what seccomp provides separately), or inter-process
-communication. A workload that bypasses the filesystem entirely (e.g. via
-`mmap`/JIT) is not constrained by Landlock.
+nono-nri constrains filesystem access, and narrows the syscall surface with the
+seccomp profile it injects (`config.seccompProfile`, `restricted` by default). It
+does not restrict network access or inter-process communication. A workload that
+bypasses the filesystem entirely (e.g. via `mmap`/JIT) is not constrained by
+Landlock.
 
 ## Kata vs runc
 
@@ -66,7 +67,7 @@ to exec'd processes as well.
 | VM isolation | Yes — each pod runs in a QEMU/KVM micro-VM | No — shared kernel with node |
 | `kubectl exec` via nono | Yes — kata-agent OPA policy permits exec only through `nono wrap` | No — PATH wrappers cover name-only execs; full-path execs bypass |
 | Landlock enforcement | Yes — nono applies Landlock inside the VM | Yes — nono applies Landlock on the node kernel |
-| Custom kernel | Yes — kubefence deploys a custom kernel with `CONFIG_SECURITY_LANDLOCK=y` | No — requires node kernel 5.13+ with Landlock already enabled |
+| Kernel requirement | Met by the stock kata guest kernel — kata >= 4.0 builds every one with `CONFIG_SECURITY_LANDLOCK=y`, and kubefence installs no kernel of its own | Node kernel 5.13+ with Landlock already enabled |
 | Deployment complexity | Higher — requires KVM, kata-deploy, three DaemonSets | Lower — requires containerd 2.2.0+, two DaemonSets |
 | Performance overhead | Higher — VM startup latency per pod | Lower — container startup latency only |
 
@@ -89,9 +90,18 @@ kubefence deploys up to three DaemonSets depending on configuration:
 
 **kubefence-node-setup** — privileged DaemonSet that runs once per node to:
 
-- Enable NRI in containerd (patches `/etc/containerd/config.toml`)
-- Register the `nono-runc` runtime handler in containerd
+- Enable NRI in containerd and register the `nono-runc` runtime handler, by
+  writing a drop-in at `/etc/containerd/conf.d/40-nono-runc.toml`
 - Copy the nono binary from the plugin image to `/opt/nono-nri/nono` on the host
+
+Each writer owns a file rather than appending to the shared config:
+node-setup writes `40-nono-runc.toml`, kata-setup writes `50-nono-kata.toml`.
+`/etc/containerd/config.toml` is normally untouched — the only edit made there is
+adding `/etc/containerd/conf.d/*.toml` to the `imports` array, which a stock
+containerd 2.x config already lists. The handlers are declared under the CRI
+plugin name matching the config's schema version (`io.containerd.cri.v1.runtime`
+for version 3, `io.containerd.grpc.v1.cri` for version 2); the wrong name is
+parsed and silently discarded.
 
 **kubefence-kata-setup** — privileged DaemonSet (only when `kata.enabled=true`) that:
 
@@ -106,3 +116,25 @@ container creation events and applies nono injection.
 
 All DaemonSets run with `automountServiceAccountToken: false` and dropped
 capabilities for minimal host privilege.
+
+### Startup ordering
+
+The setup DaemonSets restart containerd to load their drop-ins, which drops the
+NRI connection of an already-running plugin. Pods created in that window start
+with no nono wrapper and no seccomp profile, and come up looking healthy — the
+failure is silent from the workload's side.
+
+Kubernetes has no cross-DaemonSet ordering, so each setup DaemonSet writes a
+marker under `hostPaths.readyDir` (`/run/kubefence/{node,kata}-setup.done`) once
+it is done restarting anything, and the plugin's `wait-for-node-setup` init
+container blocks on the markers of the enabled DaemonSets plus the NRI socket.
+Expect the plugin pod to sit in `Init:0/2` during a fresh install. The wait times
+out after 300s and starts anyway, logging a warning: a plugin that starts late
+still converges, one that never starts protects nothing.
+
+The markers live on tmpfs by design — after a reboot they are gone and the setup
+DaemonSets must re-assert them before the plugin is allowed to start again.
+
+!!! warning
+    The same window opens if you restart containerd by hand. Pods created before
+    the plugin reconnects are not sandboxed.

@@ -20,7 +20,30 @@ nono-nri: kernel X.Y is too old: nono-nri requires Linux 5.13+ for Landlock LSM 
 
 Upgrade the node kernel or use a node image with a compatible kernel.
 
-**Step 2 — Check NRI socket**
+**Step 2 — Plugin stuck in `Init:0/2`**
+
+The plugin gates on node setup finishing before it connects to NRI, so this is
+the expected state during a fresh install (see
+[Startup ordering](architecture.md#startup-ordering)). Check what it is waiting
+for:
+
+```bash
+kubectl logs -n kube-system -l 'app.kubernetes.io/name=kubefence,!app.kubernetes.io/component' \
+  -c wait-for-node-setup --tail=20
+```
+
+It waits for `/run/kubefence/node-setup.done`, `/run/kubefence/kata-setup.done`
+(only when `kata.enabled=true`), and the NRI socket. If it never clears, the
+corresponding setup DaemonSet has not completed — its init container is failing,
+or it has no node to run on. The wait gives up after 300s and starts anyway with:
+
+```
+WARNING: node setup markers not present after 300s — starting anyway.
+```
+
+Verify the markers directly on the node with `ls /run/kubefence`.
+
+**Step 3 — Check NRI socket**
 
 ```bash
 # On the node (or via kubectl exec into a privileged pod)
@@ -36,10 +59,10 @@ kubectl rollout status daemonset/kubefence-node-setup -n kube-system
 kubectl logs -n kube-system -l app.kubernetes.io/component=node-setup --tail=50
 ```
 
-**Step 3 — Check plugin logs**
+**Step 4 — Check plugin logs**
 
 ```bash
-kubectl logs -n kube-system -l app.kubernetes.io/name=kubefence --tail=100
+kubectl logs -n kube-system -l 'app.kubernetes.io/name=kubefence,!app.kubernetes.io/component' --tail=100
 ```
 
 Look for startup errors. Common messages:
@@ -73,7 +96,7 @@ intercepted by kubefence. Add `runtimeClassName: kata-nono-sandbox` (Kata) or
 **Step 2 — Check plugin logs for the pod**
 
 ```bash
-kubectl logs -n kube-system -l app.kubernetes.io/name=kubefence | grep <pod-name>
+kubectl logs -n kube-system -l 'app.kubernetes.io/name=kubefence,!app.kubernetes.io/component' | grep <pod-name>
 ```
 
 If you see a log entry with `"decision":"skip"`, the plugin received the event
@@ -93,6 +116,20 @@ ls -la /opt/nono-nri/nono
 
 If the binary is absent, node-setup has not completed. Check node-setup status
 and logs as described in the previous section.
+
+**Step 4 — Was containerd restarted while the pod was created?**
+
+A containerd restart drops the plugin's NRI connection. The plugin reconnects on
+its own, but pods created in that window start with no `/nono` mount and no
+seccomp profile while still reporting `Running` — `grep ^Seccomp: /proc/self/status`
+returns `0` instead of `2`. Recreate the pod:
+
+```bash
+kubectl delete pod <pod-name> && kubectl apply -f <manifest>
+```
+
+The setup DaemonSets' own restarts are covered by the startup gate; a manual
+`systemctl restart containerd` is not.
 
 ---
 

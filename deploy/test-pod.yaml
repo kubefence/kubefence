@@ -9,6 +9,9 @@ spec:
   runtimeClassName: kata-nono-sandbox
   restartPolicy: Never
   containers:
+    # glibc image on purpose: the shipped nono is glibc-linked, so on a musl
+    # image (alpine, busybox-uclibc) it fails to start and the container exits
+    # with code 2 and no logs.
     - name: test
-      image: alpine:3.20
+      image: debian:12-slim
       command: ["sleep", "infinity"]
