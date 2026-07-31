@@ -2,4 +2,12 @@ nono-nri has been deployed to namespace {{ .Values.namespace }}.
 
 Plugin config: kubectl get configmap -n {{ .Values.namespace }} {{ include "kubefence.fullname" . }}-config -o yaml
 DaemonSet:     kubectl get daemonset -n {{ .Values.namespace }} {{ include "kubefence.fullname" . }}
-Logs:          kubectl logs -n {{ .Values.namespace }} -l {{ include "kubefence.selectorLabels" . | replace ": " "=" | replace "\n" "," }} -f
+Logs:          kubectl logs -n {{ .Values.namespace }} -l app.kubernetes.io/component=plugin -f
+
+The plugin waits for the setup DaemonSets to publish their markers under
+{{ .Values.hostPaths.readyDir }} before connecting to NRI, so it stays in Init:0/2
+until they are done. Pods created before it connects are NOT sandboxed.
+
+Upgrading from an earlier chart? Breaking changes and the reinstall recipe are in
+docs/upgrading.md — an in-place `helm upgrade` across them fails on immutable
+fields.

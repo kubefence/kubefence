@@ -49,6 +49,18 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+The guest extension image reference.
+
+Defaults to the chart's own appVersion rather than a floating tag, so that
+`--version 1.2.3` pins the extension to 1.2.3 the same way it pins the plugin
+image. The kata-extension workflow publishes both `1.2.3` and `v1.2.3` for a
+release; this uses the unprefixed one to match the plugin image's tagging.
+*/}}
+{{- define "kubefence.extensionImage" -}}
+{{- .Values.kata.extensionImage | default (printf "ghcr.io/kubefence/kata-nono-extension:%s" .Chart.AppVersion) -}}
+{{- end }}
+
+{{/*
 Shell fragment that selects the containerd plugin name a runtime handler must be
 declared under, into CRI_PLUGIN.
 

@@ -62,6 +62,7 @@ Published images built by CI on every release:
 | [Architecture](architecture.md) | How kubefence and nono work together, threat model, Kata vs runc |
 | [Installation](installation.md) | Helm install steps for Kata and runc paths, prerequisites |
 | [Configuration](configuration.md) | All Helm values and TOML config fields explained |
+| [Upgrading](upgrading.md) | Version contract, breaking changes per release, reinstall recipes |
 | [Usage](usage.md) | Opting pods in, nono profiles, verifying sandbox injection |
 | [Caveats](caveats.md) | Known limitations and PoC constraints |
 | [Troubleshooting](troubleshooting.md) | Diagnostic steps for common failure modes |

@@ -11,7 +11,7 @@ directly when using Helm.
 | Value | Default | Description |
 |-------|---------|-------------|
 | `image.repository` | `ghcr.io/kubefence/nono-nri-plugin` | Plugin container image repository |
-| `image.tag` | `latest` | Plugin container image tag. Pin to a release tag in production |
+| `image.tag` | `""` | Plugin container image tag. Empty means the chart's `appVersion`, i.e. the release the chart came from — so `--version 0.8.0` pins the image to `0.8.0`. Set explicitly for local builds or to pin a digest |
 | `image.pullPolicy` | `IfNotPresent` | Kubernetes image pull policy |
 | `namespace` | `kube-system` | Namespace for all kubefence resources |
 
@@ -40,7 +40,7 @@ These values are rendered into the TOML config file loaded by the plugin.
 | Value | Default | Description |
 |-------|---------|-------------|
 | `kata.enabled` | `false` | Enable the kata-setup DaemonSet. Requires kata-deploy to be installed first |
-| `kata.extensionImage` | `ghcr.io/kubefence/kata-nono-extension:latest` | OCI image carrying the nono guest extension (hardened kata-agent policy). Pin to an immutable digest in production |
+| `kata.extensionImage` | `""` | OCI image carrying the nono guest extension (hardened kata-agent policy). Empty means `ghcr.io/kubefence/kata-nono-extension:<appVersion>`, so a pinned chart pins the extension too. Set explicitly for another registry or to pin a digest |
 | `kata.shareDir` | `/opt/kata/share/kata-containers` | Directory where kata-deploy installs kata share files on each node |
 | `kata.qemuConfigPath` | `/opt/kata/share/defaults/kata-containers/runtime-rs/runtimes/qemu-runtime-rs/configuration-qemu-runtime-rs.toml` | Path to the kata QEMU configuration file written by kata-deploy. runtime-rs configs sit under a `runtime-rs/` prefix |
 | `kata.qemu.machineAccelerators` | `""` | Additional QEMU machine accelerators. Set to `"kernel_irqchip=split"` for nested-KVM environments (e.g. Kind clusters) |

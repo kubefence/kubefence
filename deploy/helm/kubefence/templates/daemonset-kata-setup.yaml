@@ -54,7 +54,7 @@ spec:
         # explicitly rather than relying on ENTRYPOINT so the intent is clear in
         # kubectl describe and the chart is not fragile to image metadata changes.
         - name: install-kata-extension
-          image: {{ .Values.kata.extensionImage | quote }}
+          image: {{ include "kubefence.extensionImage" . | quote }}
           command: ["/bin/cp", "/kata-nono-extension.img"]
           args:
             - {{ printf "%s/kata-nono-extension.img" .Values.kata.shareDir | quote }}

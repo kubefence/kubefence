@@ -129,7 +129,7 @@ kubectl exec nono-test -- /nono/nono wrap --profile default -- \
 # Expected: Seccomp:	2   (filter mode)
 
 # Check plugin decision logs for this pod
-kubectl logs -n kube-system -l 'app.kubernetes.io/name=kubefence,!app.kubernetes.io/component' | grep nono-test
+kubectl logs -n kube-system -l app.kubernetes.io/component=plugin | grep nono-test
 # Expected: {"msg":"injected","decision":"inject","pod":"nono-test","profile":"default",...}
 
 # Cleanup

@@ -47,6 +47,7 @@ nav:
   - Architecture: architecture.md
   - Installation: installation.md
   - Configuration: configuration.md
+  - Upgrading: upgrading.md
   - Usage: usage.md
   - Caveats: caveats.md
   - Troubleshooting: troubleshooting.md

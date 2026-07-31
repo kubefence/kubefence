@@ -130,7 +130,7 @@ kubectl delete configmap nono-policy-test-cm --ignore-not-found=true &>/dev/null
 echo "── Test 1: Plugin connectivity ──────────────────────────────────────────"
 
 PLUGIN_POD=$(kubectl get pod -n kube-system \
-  -l 'app.kubernetes.io/name=kubefence,!app.kubernetes.io/component' \
+  -l app.kubernetes.io/component=plugin \
   -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 require "plugin DaemonSet pod exists" test -n "$PLUGIN_POD"
 

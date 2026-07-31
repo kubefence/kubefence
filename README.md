@@ -208,7 +208,10 @@ metadata:
     nono.sh/profile: "strict"
 ```
 
-**Upgrade kubefence** (updates all three images atomically):
+**Upgrade kubefence.** The chart version pins the plugin and extension images too,
+so one number moves everything. Before 1.0 a release may instead require an
+uninstall/reinstall — 0.6.x → 0.7.x does, because the Kata handler changed — so
+check [docs/upgrading.md](docs/upgrading.md) first.
 
 ```bash
 KUBEFENCE_VERSION=$(helm show chart oci://ghcr.io/kubefence/charts/kubefence \
@@ -278,7 +281,7 @@ kubectl exec nono-test -- ls -la /nono/nono
 # error: ... PERMISSION_DENIED ... "ExecProcessRequest is blocked by policy"
 
 # Check plugin decision logs
-kubectl logs -n kube-system -l 'app.kubernetes.io/name=kubefence,!app.kubernetes.io/component' | grep nono-test
+kubectl logs -n kube-system -l app.kubernetes.io/component=plugin | grep nono-test
 # {"msg":"injected","decision":"inject","pod":"nono-test","profile":"default",...}
 
 # Cleanup

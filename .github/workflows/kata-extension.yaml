@@ -48,10 +48,30 @@ jobs:
         id: tag
         run: |
           # Releases publish the release tag; branch pushes publish the short sha.
+          #
+          # A release also publishes the tag with the leading 'v' stripped, which is
+          # how the plugin image and the chart version are numbered. The Helm chart
+          # derives this image's tag from Chart.appVersion, so the unprefixed form
+          # has to exist or a pinned chart cannot pull its own extension.
           if [ "${{ github.event_name }}" = "release" ]; then
-            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            TAG="${{ github.ref_name }}"
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+            {
+              echo "tags<<EOF"
+              echo "${{ env.IMAGE }}:${TAG}"
+              echo "${{ env.IMAGE }}:${TAG#v}"
+              echo "${{ env.IMAGE }}:latest"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
           else
-            echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+            TAG="${GITHUB_SHA::12}"
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+            {
+              echo "tags<<EOF"
+              echo "${{ env.IMAGE }}:${TAG}"
+              echo "${{ env.IMAGE }}:latest"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
           fi
 
       - name: Set up Docker Buildx
@@ -63,12 +83,10 @@ jobs:
           context: deploy/kata-extension
           push: true
           platforms: linux/amd64
-          tags: |
-            ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
-            ${{ env.IMAGE }}:latest
+          tags: ${{ steps.tag.outputs.tags }}
 
       - name: Summary
         run: |
           echo "### Published" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`${{ env.IMAGE }}:latest\`" >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' '${{ steps.tag.outputs.tags }}' \
+            | sed 's/^/- `/; s/$/`/' >> "$GITHUB_STEP_SUMMARY"

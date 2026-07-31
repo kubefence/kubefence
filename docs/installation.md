@@ -132,15 +132,22 @@ kubectl rollout status daemonset/kubefence            -n kube-system
 
 ## Upgrade
 
-Upgrade kubefence (updates all three images atomically):
+The chart version pins the plugin and extension images too, so one number moves
+everything:
 
 ```bash
 helm upgrade kubefence \
   oci://ghcr.io/kubefence/charts/kubefence \
-  --version 1.1.0 \
+  --version 0.8.0 \
   --namespace kube-system \
   --reuse-values
 ```
+
+!!! warning
+    Before 1.0 a release may change the node contract (RuntimeClass handlers,
+    containerd layout, guest artefacts) and require an uninstall/reinstall rather
+    than an in-place upgrade — 0.6.x → 0.7.x does. Check
+    [Upgrading](upgrading.md) first.
 
 ---
 

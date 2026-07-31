@@ -525,8 +525,8 @@ echo "==> Waiting for DaemonSet rollout..."
 kubectl rollout status daemonset/kubefence -n kube-system --timeout=300s || {
   echo ""
   echo "ERROR: DaemonSet rollout timed out. Pod diagnostics:"
-  kubectl get pods -n kube-system -l app.kubernetes.io/name=kubefence -o wide 2>/dev/null || true
-  _POD=$(kubectl get pod -n kube-system -l app.kubernetes.io/name=kubefence \
+  kubectl get pods -n kube-system -l app.kubernetes.io/component=plugin -o wide 2>/dev/null || true
+  _POD=$(kubectl get pod -n kube-system -l app.kubernetes.io/component=plugin \
            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
   if [[ -n "$_POD" ]]; then
     echo ""

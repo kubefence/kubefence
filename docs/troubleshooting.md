@@ -28,7 +28,7 @@ the expected state during a fresh install (see
 for:
 
 ```bash
-kubectl logs -n kube-system -l 'app.kubernetes.io/name=kubefence,!app.kubernetes.io/component' \
+kubectl logs -n kube-system -l app.kubernetes.io/component=plugin \
   -c wait-for-node-setup --tail=20
 ```
 
@@ -62,7 +62,7 @@ kubectl logs -n kube-system -l app.kubernetes.io/component=node-setup --tail=50
 **Step 4 — Check plugin logs**
 
 ```bash
-kubectl logs -n kube-system -l 'app.kubernetes.io/name=kubefence,!app.kubernetes.io/component' --tail=100
+kubectl logs -n kube-system -l app.kubernetes.io/component=plugin --tail=100
 ```
 
 Look for startup errors. Common messages:
@@ -96,7 +96,7 @@ intercepted by kubefence. Add `runtimeClassName: kata-nono-sandbox` (Kata) or
 **Step 2 — Check plugin logs for the pod**
 
 ```bash
-kubectl logs -n kube-system -l 'app.kubernetes.io/name=kubefence,!app.kubernetes.io/component' | grep <pod-name>
+kubectl logs -n kube-system -l app.kubernetes.io/component=plugin | grep <pod-name>
 ```
 
 If you see a log entry with `"decision":"skip"`, the plugin received the event

@@ -6,7 +6,10 @@ namespace: kube-system
 # the locally-built image loaded into the cluster.
 image:
   repository: ghcr.io/kubefence/nono-nri-plugin
-  tag: latest
+  # Empty means Chart.appVersion, which the release workflow stamps with the
+  # release tag — so `--version 1.2.3` pins the image to 1.2.3 as well instead of
+  # tracking a floating `latest`. Set explicitly to override.
+  tag: ""
   pullPolicy: IfNotPresent
 
 # Optional ServiceAccount
@@ -113,8 +116,10 @@ kata:
   enabled: false
 
   # OCI image carrying /kata-nono-extension.img — built by kata-extension.yaml.
-  # Pin to an immutable digest in production: ghcr.io/kubefence/kata-nono-extension:latest@sha256:<digest>
-  extensionImage: ghcr.io/kubefence/kata-nono-extension:latest
+  # Empty means ghcr.io/kubefence/kata-nono-extension:<Chart.appVersion>, so a
+  # pinned chart pins the extension too. Set explicitly to use another registry or
+  # to pin a digest: ghcr.io/kubefence/kata-nono-extension@sha256:<digest>
+  extensionImage: ""
 
   # Directory where kata-deploy installs kata share files on each node.
   shareDir: /opt/kata/share/kata-containers
