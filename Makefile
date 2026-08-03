@@ -2,7 +2,7 @@ BINARY := 10-nono-nri
 CMD := ./cmd/nono-nri
 
 .PHONY: build test test-all policy-test clean fmt lint check \
-        nono-build docker-build docker-load-kind \
+        nono-fetch docker-build docker-load-kind \
         kind-up kind-test kind-down kind-e2e
 
 build:
@@ -49,14 +49,13 @@ check: fmt lint
 IMAGE        ?= nono-nri:latest
 KIND_CLUSTER ?= nono-test
 
-# Build nono from source (glibc by default; BUILD_TARGET=musl for fully static).
-# Requires: rustup. For musl: also apt-get install musl-tools.
-# NONO_VERSION can be set to a git tag (e.g. v0.23.0) or branch.
-nono-build:
-	bash scripts/build-nono.sh
+# Fetch the upstream nono release binary (glibc 2.34+; no musl build upstream).
+# NONO_VERSION overrides the pinned release tag.
+nono-fetch:
+	bash scripts/fetch-nono.sh
 
 docker-build:
-	@test -f nono || (echo "ERROR: ./nono binary not found. Run 'make nono-build' to build from source." && exit 1)
+	@test -f nono || (echo "ERROR: ./nono binary not found. Run 'make nono-fetch' to download it." && exit 1)
 	docker build -t $(IMAGE) .
 
 docker-load-kind: docker-build

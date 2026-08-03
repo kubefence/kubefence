@@ -5,8 +5,8 @@ See [README.md](README.md) for project overview, threat model, and deployment in
 ## Build
 
 ```bash
-# Build the nono binary from source (requires rustup)
-make nono-build      # outputs ./nono (glibc, no libdbus/libsystemd)
+# Fetch the pinned upstream nono release binary
+make nono-fetch      # outputs ./nono (glibc 2.34+, no libdbus/libsystemd)
 
 # Build the plugin binary
 make build           # outputs ./10-nono-nri
@@ -20,9 +20,25 @@ make docker-build    # outputs nono-nri:latest
 | Component | Minimum version |
 |-----------|----------------|
 | Go | 1.24+ |
-| rustup | for nono source builds via `make nono-build` |
-| musl-tools | optional, for static musl builds: `BUILD_TARGET=musl make nono-build` |
+| curl | for `make nono-fetch` |
 | Docker | for `make docker-build` |
+
+## The nono binary
+
+`scripts/fetch-nono.sh` downloads the pinned upstream release
+(`nolabs-ai/nono`, `NONO_VERSION`, currently **v0.71.0**) and verifies it against
+a checksum pinned in the script — bump both together. Nothing is built from
+source: upstream's glibc binary needs only libc, libgcc_s and libm, which is what
+the old source build produced after patching the keyring feature out, so the
+Rust toolchain bought nothing.
+
+Consequences worth knowing:
+
+- **glibc 2.34+** is required in any image the binary is bind-mounted into
+  (Ubuntu 22.04, Debian 12, RHEL 9 and newer). Older images cannot run it.
+- **No musl build exists upstream**, so alpine workloads are unsupported. The
+  removed source build could produce one; see git history for the patch set if
+  you need to revive it.
 
 ## Quick Start with Kind
 
@@ -158,4 +174,6 @@ Run it before releasing changes to how containerd config is written — see
 
 The pinned `NONO_VERSION` in
 [`.github/workflows/release.yaml`](.github/workflows/release.yaml)
-controls which nono release is baked into the image. Update it when bumping nono.
+controls which nono release is baked into the image. Bump it together with the
+checksum in [`scripts/fetch-nono.sh`](scripts/fetch-nono.sh) — a mismatch fails
+the release build loudly, which is the point of the pin.

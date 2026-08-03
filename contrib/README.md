@@ -39,8 +39,13 @@ The `default` profile (wrap-compatible) restricts:
 - `docker` and `kind` in PATH
 - nono-nri DaemonSet running: `kubectl rollout status daemonset/nono-nri -n kube-system`
 
-> **Image requirement:** Demo images are Debian-based with `libdbus-1-3`, which the
-> nono binary requires at runtime. Alpine / musl images cannot run the nono binary.
+> **Image requirement:** the nono binary needs glibc 2.34+ (debian:12-slim,
+> ubuntu:22.04+). Alpine / musl images cannot run it, and neither can debian:11.
+>
+> **Profiles:** these demos predate nono v0.71.0, which turned the agent profiles
+> into installable packs and made CWD access require `--allow-cwd`. They use
+> `python-dev` / `node-dev` and will not run unchanged — see
+> [Caveats](../docs/caveats.md).
 
 ## Quick start
 

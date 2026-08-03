@@ -12,7 +12,7 @@ container creation and wraps the container process with the `nono` Landlock
 sandbox binary. Opt-in is via RuntimeClass: only pods whose RuntimeClass handler
 matches the configured list are wrapped; all others are skipped with zero overhead.
 
-The `nono` binary (built from source by `scripts/build-nono.sh`, glibc by default)
+The `nono` binary (fetched from the upstream release by `scripts/fetch-nono.sh`, glibc 2.34+)
 is copied from the container image to the host by a DaemonSet init container,
 then bind-mounted read-only into each sandboxed container at `/nono/nono`.
 
@@ -43,11 +43,11 @@ deploy/daemonset.yaml             DaemonSet manifest (init + main containers)
 deploy/runtimeclass-kata.yaml     kata-nono-sandbox RuntimeClass (handler: kata-qemu-runtime-rs)
 deploy/10-nono-nri.toml.example   Annotated TOML config reference
 Dockerfile                        Multi-stage: golang:1.24-alpine builder → alpine:3.20
-.github/workflows/release.yaml    CI: builds static nono from source, builds + pushes to ghcr.io
+.github/workflows/release.yaml    CI: fetches the pinned nono release, builds + pushes to ghcr.io
 .github/workflows/kata-extension.yaml   CI: builds + pushes the guest extension image
-scripts/build-nono.sh             builds nono from always-further/nono source; glibc by default
-                                  (BUILD_TARGET=musl for fully static); patches keyring to drop
-                                  libdbus (sync-secret-service disabled)
+scripts/fetch-nono.sh             downloads the nolabs-ai/nono release binary at NONO_VERSION and
+                                  verifies it against a pinned SHA256; glibc 2.34+, no musl build
+                                  exists upstream
 ```
 
 ---
@@ -171,39 +171,34 @@ Unknown TOML keys cause a parse error (`DisallowUnknownFields` is set).
 ## nono profile compatibility
 
 nono-nri injects `nono wrap --profile <name> --` via `SetArgs`. This means only
-profiles that are compatible with `nono wrap` will work; profiles that activate
-proxy network mode require `nono run` (a different binary subcommand) and cannot
-be used with nono-nri in its current form.
+profiles that are compatible with `nono wrap` will work. What that excludes has
+changed with nono versions; see the tables below.
 
-**Verified working** (tested against `nono-runc` and `kata-nono-sandbox`, nono v0.23.0):
+**Verified working** (tested against `nono-runc` and `kata-nono-sandbox`, nono v0.71.0):
 
 | Profile | Notes |
 |---|---|
-| `default` | Base system profile; suitable as `default_profile` |
-| `claude-code` | Claude Code agent profile |
-| `codex` | OpenAI Codex agent profile |
-| `opencode` | Open-source code agent profile |
-| `swival` | Python/Node.js dev agent profile |
+| `default` | Base system profile; suitable as `default_profile`. The only profile that works as shipped |
 
-**Incompatible with `nono wrap`** — these profiles enable proxy network mode:
+**Broken as shipped** — the profile name is valid, so the plugin injects it and
+nono then exits before the workload runs, i.e. the container fails to start:
 
-| Profile | Failure | Workaround |
+| Profile | Failure | Cause |
 |---|---|---|
-| `python-dev` | `nono wrap does not support proxy mode` | requires `nono run` |
-| `node-dev` | same | same |
-| `go-dev` | same | same |
-| `rust-dev` | same | same |
+| `claude-code`, `codex`, `opencode` | `install required but no TTY available` (exit 1) | nono v0.71 moved these into installable packs (`nono pull nolabs-ai/<name>`). Not in the binary, and installing needs registry access plus a writable config dir inside the sandbox |
+| `swival`, `python-dev`, other CWD-wanting profiles | `CWD access requires --allow-cwd in non-interactive mode` (exit 1) | nono no longer grants CWD implicitly without a TTY; the plugin injects no `--allow-cwd` |
 
-**Conditionally broken:**
+Proxy-mode profiles are no longer rejected outright by `wrap` — `python-dev` gets
+as far as `net proxy` + `Applying sandbox` — so the old "requires `nono run`"
+constraint is gone; the CWD gate is what stops them now.
 
-| Profile | Failure | Condition |
-|---|---|---|
-| `openclaw` | Landlock deny-overlap: profile denies `/root/.local/share/keyrings` while allowing parent `/root/.local` | container runs as root (`$HOME=/root`) |
+Making the agent profiles usable means baking packs into the plugin image at
+build time (nothing does this yet), and deciding whether `--allow-cwd` belongs in
+the injected argument vector.
 
-Profile availability and behaviour vary by nono version. The table above was
-validated against nono v0.23.0; v0.39.0 was available at that time and may
-resolve some of these constraints. Re-run profile verification after upgrading
-the nono binary.
+Profile availability and behaviour vary by nono version — v0.23.0 shipped these
+profiles in the binary, v0.71.0 does not. Re-run profile verification after
+upgrading the nono binary.
 
 ---
 
@@ -222,8 +217,8 @@ gofmt -l .
 # vet
 go vet ./...
 
-# build static nono from source (requires rustup + musl-tools)
-make nono-build
+# fetch the pinned upstream nono release binary
+make nono-fetch
 
 # docker image (requires ./nono binary in repo root)
 make docker-build IMAGE=nono-nri:latest
@@ -365,8 +360,8 @@ The NRI socket mount is read-only because the plugin connects *to* containerd
 ## Published image
 
 `ghcr.io/kubefence/nono-nri-plugin` is built by `.github/workflows/release.yaml`:
-- Builds `nono` from source (`always-further/nono` at `NONO_VERSION`) as a glibc
-  binary (no libdbus/libsystemd) via `scripts/build-nono.sh`
+- Fetches the `nolabs-ai/nono` release binary at `NONO_VERSION` (glibc 2.34+, no
+  libdbus/libsystemd) via `scripts/fetch-nono.sh`
 - Compiles `10-nono-nri` from repo source with `CGO_ENABLED=0`
 - Platform: `linux/amd64` only
 - Logging from NRI SDK internals appears in logrus format

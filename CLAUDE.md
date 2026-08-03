@@ -38,9 +38,10 @@ internal/log/        # slog setup
 - Container opt-in: RuntimeClass filter only (no namespace denylist)
 - Pause containers excluded naturally via NRI PodSandbox event separation
 - `ContainerAdjustment.SetArgs()` to wrap process.args — no OCI hooks
-- nono binary built from source (glibc by default, BUILD_TARGET=musl for static) — no libdbus/libsystemd
+- nono binary is the upstream release (`nolabs-ai/nono`, glibc 2.34+) — no libdbus/libsystemd,
+  so nothing is built from source; no musl build exists upstream
 - nono binary bind-mounted from host into container (works for Kata via virtiofs)
-- `scripts/build-nono.sh` builds nono from source; `make nono-build` is the entry point
+- `scripts/fetch-nono.sh` downloads and checksum-verifies it; `make nono-fetch` is the entry point
 - Kernel check (5.13+ for Landlock) runs before anything else in main()
 - State dir cleanup uses `StopContainer` (direct gRPC RPC, reliable) not
   `RemoveContainer` (StateChange notification, not delivered by containerd 2.x
@@ -92,7 +93,7 @@ is opt-in, not the other way around.
 
 ## Languages
 - Go 1.24.3 - NRI plugin implementation (`cmd/nono-nri`, `internal/nri`, `internal/log`)
-- Rust - nono binary (wrapped via `scripts/build-nono.sh`)
+- Rust - nono binary (upstream release, fetched via `scripts/fetch-nono.sh`)
 - Bash - Deployment and build automation scripts
 ## Runtime
 - Linux 5.13+ (kernel requirement for Landlock LSM support)
@@ -124,9 +125,8 @@ is opt-in, not the other way around.
 - `.github/workflows/` - CI/CD via GitHub Actions (lint, release, kata-extension)
 ## Platform Requirements
 - Go 1.24+ toolchain
-- Docker (for `make docker-build`, `make nono-build` with glibc)
-- rustup (for nono source builds)
-- Optional: musl-tools (for static musl builds: `BUILD_TARGET=musl make nono-build`)
+- Docker (for `make docker-build`)
+- curl (for `make nono-fetch`)
 - Kubernetes 1.24+ with containerd 1.7.x+ or CRI-O runtime
 - NRI enabled on the node's container runtime
 - Linux kernel 5.13+ with Landlock LSM support
@@ -140,8 +140,8 @@ is opt-in, not the other way around.
 - `syscall` - Kernel version detection via uname
 - `context` - Graceful shutdown via context cancellation
 ## Nono Binary Integration
-- Default: glibc binary via Docker (Rust 1.85-slim-bullseye → x86_64-unknown-linux-gnu)
-- Alternative: Fully static musl build (no runtime deps, works in scratch/Alpine)
+- Upstream release binary, x86_64-unknown-linux-gnu, pinned by NONO_VERSION + SHA256 in scripts/fetch-nono.sh
+- Requires glibc 2.34+ in the workload image; alpine/musl images are unsupported
 - Binary path: configurable via `nono_bin_path` in config
 - Embedded in container image at `/usr/local/bin/nono`
 - Bind-mounted into containers at `/nono/nono` (host → container mount)

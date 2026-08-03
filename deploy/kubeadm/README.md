@@ -56,7 +56,7 @@ binary must be glibc-based and so must any workload image you test with.
 
 ```bash
 REG=<node-ip>:5000
-make nono-build
+make nono-fetch
 make docker-build IMAGE=$REG/nono-nri:latest
 docker build -t $REG/kata-nono-extension:latest deploy/kata-extension
 docker push $REG/nono-nri:latest
@@ -127,8 +127,9 @@ systemctl show -p MainPID --value containerd     # unchanged
 
 ## Gotchas
 
-- **Use a glibc workload image.** The shipped nono is glibc; an alpine or
-  busybox-uclibc image crash-loops with exit 2 and an empty `kubectl logs`.
+- **Use a glibc 2.34+ workload image** (debian:12-slim, ubuntu:22.04+). The
+  shipped nono is the upstream glibc release; an alpine or busybox-uclibc image
+  crash-loops with exit 2 and an empty `kubectl logs`, and so does debian:11.
 - **Do not restart containerd by hand while judging injection.** The plugin drops
   its NRI connection and reconnects, but pods created in that window start
   un-injected — visibly `Seccomp: 0` with no `/nono/nono`, while still Running.

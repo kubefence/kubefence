@@ -57,31 +57,29 @@ configured in the Helm values or TOML config.
 
 ### Verified profiles
 
-The following profiles are verified to work with kubefence's `nono wrap`
-injection (tested against nono v0.23.0):
+Only `default` is verified to work with kubefence's injection as shipped (tested
+against nono v0.71.0, in-cluster on both RuntimeClasses):
 
 | Profile | Notes |
 |---------|-------|
 | `default` | Base system profile. Safe default for most workloads |
-| `claude-code` | Claude Code agent profile |
-| `codex` | OpenAI Codex agent profile |
-| `opencode` | Open-source code agent profile |
-| `swival` | Python/Node.js development agent profile |
 
-### Incompatible profiles
+Everything else needs work in the image or in the injected arguments first:
 
-Some nono profiles enable proxy network mode and require `nono run` instead of
-`nono wrap`. These **cannot** be used with kubefence:
+| Profile | What happens | Why |
+|---------|--------------|-----|
+| `claude-code`, `codex`, `opencode` | `install required but no TTY available` — container exits 1 | nono moved these into installable *packs*. They are not in the binary, and `nono pull` inside a sandboxed container would need registry access and a writable config dir |
+| `swival`, `python-dev`, and other profiles wanting the working directory | `CWD access requires --allow-cwd in non-interactive mode` — container exits 1 | nono no longer grants CWD implicitly when there is no TTY, and kubefence injects no `--allow-cwd` |
 
-| Profile | Failure reason | Workaround |
-|---------|---------------|------------|
-| `python-dev` | `nono wrap does not support proxy mode` | Requires `nono run` |
-| `node-dev` | Same | Requires `nono run` |
-| `go-dev` | Same | Requires `nono run` |
-| `rust-dev` | Same | Requires `nono run` |
+!!! warning
+    Setting `nono.sh/profile` to any of these makes the **container fail to
+    start** — the profile name is valid, so the plugin injects it, and nono then
+    exits before the workload runs. Verify a profile in a scratch pod before
+    rolling it out.
 
-Profile availability varies by nono version. Re-verify profiles after upgrading
-the nono binary.
+Baking the packs into the plugin image at build time would make the agent
+profiles usable; nothing does that yet. Profile availability varies by nono
+version, so re-verify after a nono bump.
 
 ## What happens at runtime
 

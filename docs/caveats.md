@@ -42,15 +42,20 @@ its rootfs, the mount may behave unexpectedly.
     a pre-existing path with different content or permissions can cause mount
     conflicts.
 
-## Workload images must be glibc-based
+## Workload images must have glibc 2.34 or newer
 
-The nono binary shipped in the plugin image is glibc-linked, and it is
-bind-mounted into the container rather than built against it. On a musl image
-(alpine, `busybox:*-uclibc`) it cannot start, so the container exits immediately
-with code 2 and no logs — the pod looks like it crashed on its own command.
+The nono binary shipped in the plugin image is the upstream glibc release, and it
+is bind-mounted into the container rather than built against it. So the workload
+image must be able to run it:
 
-Build a musl-static nono (`BUILD_TARGET=musl make nono-build`) if you need to
-sandbox alpine-based workloads.
+| Image | Works |
+|-------|-------|
+| debian:12-slim, ubuntu:22.04+, RHEL/UBI 9+ | Yes (glibc 2.34+) |
+| debian:11, ubuntu:20.04 | No — glibc 2.31, too old |
+| alpine, `busybox:*-uclibc` | No — musl, and upstream publishes no musl build |
+
+When the binary cannot start, the container exits immediately with code 2 and no
+logs — the pod looks like it crashed on its own command.
 
 ## exec interception is partial for runc
 
@@ -84,19 +89,19 @@ default — see [Configuration](configuration.md#seccomp_profile-values)). For
 Kata pods this takes effect inside the guest, which requires
 `kata.qemu.disableGuestSeccomp: false` (the default).
 
-## Profile compatibility: nono wrap vs nono run
+## Only the `default` profile works as shipped
 
-kubefence injects `nono wrap --profile <name> --` before the container command.
-This only works with profiles that are compatible with `nono wrap`.
+kubefence injects `nono wrap --profile <name> --` before the container command,
+and with nono v0.71.0 only `default` survives that unattended:
 
-Some nono profiles activate proxy network mode, which requires `nono run`
-instead. These profiles (`python-dev`, `node-dev`, `go-dev`, `rust-dev`) are
-**incompatible** with kubefence. Attempting to use them will cause the container
-to exit immediately with:
+- The agent profiles (`claude-code`, `codex`, `opencode`) are now installable
+  *packs* rather than part of the binary. Selecting one makes nono ask to install
+  it, find no TTY, and exit 1 — so the container never starts.
+- Profiles that want the working directory (`swival`, `python-dev`, …) exit 1 with
+  `CWD access requires --allow-cwd in non-interactive mode`, and kubefence
+  injects no `--allow-cwd`.
 
-```
-nono wrap does not support proxy mode
-```
-
-Use one of the verified profiles listed in the [Usage](usage.md) section.
-Profile compatibility may change between nono versions — re-verify after upgrading.
+An invalid profile *name* falls back to the default safely; a valid name that
+nono then refuses to run does not. Test any non-default profile in a scratch pod
+before rolling it out, and re-verify after a nono upgrade — the set has changed
+between versions before.

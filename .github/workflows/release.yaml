@@ -6,13 +6,14 @@ on:
   workflow_dispatch:
     inputs:
       nono_version:
-        description: "nono source tag to build (e.g. v0.23.0). Defaults to NONO_VERSION below."
+        description: "nono release tag to embed (e.g. v0.71.0). Defaults to NONO_VERSION below."
         required: false
         default: ""
 
-# Default nono source tag to build. Update when a new nono is released.
+# Default nono release to embed. Update when a new nono is released — and update
+# the pinned checksum in scripts/fetch-nono.sh with it.
 env:
-  NONO_VERSION: v0.23.0
+  NONO_VERSION: v0.71.0
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/nono-nri-plugin
 
@@ -36,20 +37,13 @@ jobs:
             VERSION="${{ env.NONO_VERSION }}"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Building nono from source: $VERSION"
+          echo "Embedding nono release: $VERSION"
 
-      - name: Cache Rust registry (shared with Docker build container)
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: ~/.cargo/registry
-          key: nono-glibc-${{ steps.nono.outputs.version }}
-          restore-keys: nono-glibc-
-
-      - name: Build nono binary (glibc, inside rust:1.85-slim-bullseye)
+      - name: Fetch nono binary from the upstream release
         env:
           NONO_VERSION: ${{ steps.nono.outputs.version }}
           OUT: ${{ github.workspace }}/nono
-        run: bash scripts/build-nono.sh
+        run: bash scripts/fetch-nono.sh
 
       - name: Verify binary dependencies
         run: |

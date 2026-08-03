@@ -122,7 +122,7 @@ kind delete cluster --name nono-containerd
 - [Kind](https://kind.sigs.k8s.io/) v0.20+
 - kubectl
 - Go 1.24+ (for building the plugin)
-- `nono` binary at repo root (`./nono`) — build with `make nono-build` (static musl binary, no libdbus)
+- `nono` binary at repo root (`./nono`) — fetch with `make nono-fetch` (upstream glibc release)
 
 ## Supported Configurations
 
