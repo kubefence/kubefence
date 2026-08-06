@@ -185,16 +185,31 @@ nono then exits before the workload runs, i.e. the container fails to start:
 
 | Profile | Failure | Cause |
 |---|---|---|
-| `claude-code`, `codex`, `opencode` | `install required but no TTY available` (exit 1) | nono v0.71 moved these into installable packs (`nono pull nolabs-ai/<name>`). Not in the binary, and installing needs registry access plus a writable config dir inside the sandbox |
-| `swival`, `python-dev`, other CWD-wanting profiles | `CWD access requires --allow-cwd in non-interactive mode` (exit 1) | nono no longer grants CWD implicitly without a TTY; the plugin injects no `--allow-cwd` |
+| `claude-code`, `codex`, `opencode` | `install required but no TTY available` (exit 1) | nono v0.71 moved these into installable packs (`nono pull nolabs-ai/<name>`). Not in the binary. **Fix (verified in-cluster):** bake the pack into the *workload* image — `mkdir -p /opt/nono-config && XDG_CONFIG_HOME=/opt/nono-config nono pull ...` at build, `ENV XDG_CONFIG_HOME=/opt/nono-config`. The plugin image is irrelevant: nono resolves profiles inside the container rootfs. XDG dir must exist and sit outside `$HOME` (volumes shadow `$HOME`); nono silently falls back to `$HOME/.config` otherwise |
+| `swival`, `python-dev`, other CWD-wanting profiles | `CWD access requires --allow-cwd in non-interactive mode` (exit 1) | nono no longer grants CWD implicitly without a TTY; the plugin injects no `--allow-cwd`. **Fix (verified):** grant the cwd via pod env `NONO_ALLOW=<cwd>` (comma-separated `--allow` dirs) — nono skips the CWD gate when the cwd is already covered by an explicit grant |
 
 Proxy-mode profiles are no longer rejected outright by `wrap` — `python-dev` gets
 as far as `net proxy` + `Applying sandbox` — so the old "requires `nono run`"
 constraint is gone; the CWD gate is what stops them now.
 
-Making the agent profiles usable means baking packs into the plugin image at
-build time (nothing does this yet), and deciding whether `--allow-cwd` belongs in
-the injected argument vector.
+Verified invariants for agent workloads (nono v0.71.0, Claude Code 2.1.223,
+both RuntimeClasses — see docs/usage.md "Agent workloads" for the pod recipe):
+
+- The `default` profile's `/proc/self` grant is **PID-scoped**: resolved to the
+  wrap target's PID at setup. `exec` preserves it; a forked child gets an
+  ungranted `/proc/self`. Bun-based CLIs (Claude Code 2.x reads
+  `/proc/self/maps`) then SIGABRT with exit 134 and empty stderr — only
+  strace shows why. Container commands must end with `exec <agent>`.
+  Beware: `bash -c "cmd"` exec-without-fork masks this; `bash -c "cmd && echo"`
+  forks and dies.
+- nono refuses any grant overlapping its state root under `$HOME` — `$HOME`
+  must not itself be a granted dir; grant a sibling/subdir instead.
+- `NONO_ALLOW` is comma-separated; colon silently fails to parse.
+- Pod commands must use absolute `/bin/bash` — bare `bash` hits the
+  `/nono/bash` PATH wrapper and sandbox re-entry is denied.
+- `kubectl attach` works on Kata pods where `kubectl exec` is policy-denied:
+  attach is `ReadStream`/`WriteStream`/`TtyWinResize` on the pod's own PID 1
+  (all allowed); exec is `ExecProcessRequest` (denied).
 
 Profile availability and behaviour vary by nono version — v0.23.0 shipped these
 profiles in the binary, v0.71.0 does not. Re-run profile verification after

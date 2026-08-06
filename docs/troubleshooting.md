@@ -133,6 +133,35 @@ The setup DaemonSets' own restarts are covered by the startup gate; a manual
 
 ---
 
+## Workload aborts with exit 137/134 and no output
+
+**Symptom:** a sandboxed container exits 134 (SIGABRT). `kubectl logs` shows the
+nono banner, then nothing — no error text from the workload at all.
+
+**Cause:** the `default` profile grants `/proc/self` resolved to the wrap
+target's PID at sandbox setup, so only the process nono `exec`s into can read
+its own `/proc/self`. Bun-based CLIs (Claude Code 2.x among them) read
+`/proc/self/maps` at startup and call `abort()` without printing anything when
+denied. This bites whenever the workload runs as a *forked child* — typically a
+multi-command `bash -c` startup script. Confusingly, a single-command
+`bash -c "claude"` works (bash execs without forking) while
+`bash -c "claude; echo done"` dies.
+
+**Fix:** end the container command with `exec <program>` so it inherits the
+wrap target's PID:
+
+```yaml
+command: ["/bin/bash", "-c"]
+args: ["setup-steps && exec claude -p 'prompt'"]
+```
+
+**Diagnosis when in doubt:** run the workload under `strace -f` in a scratch
+pod; the abort follows an `EACCES` on `openat("/proc/self/maps")`. The blunt
+fallback is `NONO_ALLOW=/proc` in the pod env (grants all of the container's
+`/proc`), which also covers forked children if a workload genuinely needs that.
+
+---
+
 ## Kata VM issues
 
 **Symptom:** Kata pods fail to start, or nono fails inside the VM with

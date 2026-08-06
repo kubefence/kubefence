@@ -96,12 +96,23 @@ and with nono v0.71.0 only `default` survives that unattended:
 
 - The agent profiles (`claude-code`, `codex`, `opencode`) are now installable
   *packs* rather than part of the binary. Selecting one makes nono ask to install
-  it, find no TTY, and exit 1 — so the container never starts.
+  it, find no TTY, and exit 1 — so the container never starts. Fix: bake the
+  pack into the **workload image** (`nono pull` at build time under an
+  `XDG_CONFIG_HOME` outside `$HOME`) — verified in-cluster with
+  `nolabs-ai/claude`; see [usage](usage.md#agent-workloads-claude-code).
 - Profiles that want the working directory (`swival`, `python-dev`, …) exit 1 with
   `CWD access requires --allow-cwd in non-interactive mode`, and kubefence
-  injects no `--allow-cwd`.
+  injects no `--allow-cwd`. Fix: grant the cwd explicitly with the `NONO_ALLOW`
+  env var — nono skips the CWD gate when the cwd is already covered.
 
 An invalid profile *name* falls back to the default safely; a valid name that
 nono then refuses to run does not. Test any non-default profile in a scratch pod
 before rolling it out, and re-verify after a nono upgrade — the set has changed
 between versions before.
+
+One related trap that produces no error text at all: the `default` profile's
+`/proc/self` grant is resolved to the wrap target's PID at sandbox setup, so it
+covers only the process nono `exec`s into. A *forked* child that needs its own
+`/proc/self` (Bun-based CLIs such as Claude Code 2.x read `/proc/self/maps`)
+aborts with exit 134 and empty output. Make such a program the final `exec` of
+the container command and it inherits the granted PID.
