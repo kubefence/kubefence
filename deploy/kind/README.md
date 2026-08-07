@@ -153,6 +153,11 @@ make kind-up RUNTIME=crio
 # Run tests against an existing cluster
 make kind-test
 
+# Verify seccomp enforcement (not covered by kind-test): runs the actor and
+# probe binaries from tools/ as container main processes and compares the
+# blocked syscalls across profiles. Add KATA=false to skip the kata comparison.
+make seccomp-test
+
 # Tear down
 make kind-down
 make kind-down RUNTIME=crio

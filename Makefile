@@ -3,7 +3,7 @@ CMD := ./cmd/nono-nri
 
 .PHONY: build test test-all policy-test clean fmt lint check \
         nono-fetch docker-build docker-load-kind \
-        kind-up kind-test kind-down kind-e2e
+        kind-up kind-test kind-down kind-e2e seccomp-test
 
 build:
 	go build -o $(BINARY) $(CMD)
@@ -96,3 +96,16 @@ kind-e2e: kind-up
 	kind delete cluster --name $(CLUSTER_NAME) 2>/dev/null || true; \
 	[ "$(RUNTIME)" != "crio" ] || docker rm -f $(REGISTRY_NAME) 2>/dev/null || true; \
 	exit $$EXIT
+
+# ── Seccomp verification ──────────────────────────────────────────────────────
+# Checks that the injected seccomp policy actually blocks syscalls, which
+# kind-test does not cover. Each script builds its own actor/probe binary from
+# tools/, runs it as the container's main process (so the filter applies from
+# the first instruction — no exec bypass), and deletes its pods on exit.
+# Needs a cluster from kind-up. The kata comparison is skipped when KATA=false
+# because it asserts on the kata-nono-sandbox RuntimeClass.
+seccomp-test:
+	CLUSTER_NAME=$(CLUSTER_NAME) bash deploy/kind/seccomp-actor.sh
+	CLUSTER_NAME=$(CLUSTER_NAME) bash deploy/kind/seccomp-probe.sh
+	@[ "$(KATA)" != "true" ] || \
+		CLUSTER_NAME=$(CLUSTER_NAME) bash deploy/kind/seccomp-kata-test.sh
