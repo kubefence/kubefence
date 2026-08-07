@@ -158,6 +158,11 @@ make kind-test
 # blocked syscalls across profiles. Add KATA=false to skip the kata comparison.
 make seccomp-test
 
+# One-off variants seccomp-test does not cover — notably a pod-spec
+# RuntimeDefault profile under plain kata, which proves the kata-agent
+# enforces seccomp independently of nono-nri injection:
+#   kubectl apply -f deploy/kind/fixtures/
+
 # Tear down
 make kind-down
 make kind-down RUNTIME=crio

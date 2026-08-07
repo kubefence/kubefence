@@ -41,24 +41,23 @@ func run() error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	if cfg.NonoBinPath != "" {
-		// Use Lstat (not Stat) so a symlink at NonoBinPath is detected rather
-		// than silently followed. A symlink would pass the IsRegular check
-		// against its target but could be repointed after startup, causing
-		// unintended content to be bind-mounted into sandboxed containers.
-		info, err := os.Lstat(cfg.NonoBinPath)
-		if err != nil {
-			return fmt.Errorf("nono binary not found at %s: %w", cfg.NonoBinPath, err)
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("nono binary at %s is a symlink: only regular files are accepted", cfg.NonoBinPath)
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("nono binary at %s is not a regular file", cfg.NonoBinPath)
-		}
-		if info.Mode()&0o111 == 0 {
-			return fmt.Errorf("nono binary at %s is not executable", cfg.NonoBinPath)
-		}
+	// LoadConfig already rejects an empty nono_bin_path, so the path is always
+	// set by here. Use Lstat (not Stat) so a symlink at NonoBinPath is detected
+	// rather than silently followed. A symlink would pass the IsRegular check
+	// against its target but could be repointed after startup, causing
+	// unintended content to be bind-mounted into sandboxed containers.
+	info, err := os.Lstat(cfg.NonoBinPath)
+	if err != nil {
+		return fmt.Errorf("nono binary not found at %s: %w", cfg.NonoBinPath, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("nono binary at %s is a symlink: only regular files are accepted", cfg.NonoBinPath)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("nono binary at %s is not a regular file", cfg.NonoBinPath)
+	}
+	if info.Mode()&0o111 == 0 {
+		return fmt.Errorf("nono binary at %s is not executable", cfg.NonoBinPath)
 	}
 
 	logger := applog.New(jsonMode, level)

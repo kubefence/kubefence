@@ -99,7 +99,6 @@ is opt-in, not the other way around.
 - Linux 5.13+ (kernel requirement for Landlock LSM support)
 - NRI (Node Resource Interface) plugin framework via containerd
 - Go Modules (go.mod/go.sum)
-- Rust Cargo (for nono dependency)
 ## Frameworks
 - `github.com/containerd/nri` v0.10.0 - NRI SDK for container runtime plugin interface
 - `github.com/containerd/ttrpc` v1.2.7 - Transport mechanism for NRI communication
