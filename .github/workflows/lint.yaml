@@ -44,3 +44,9 @@ jobs:
 
       - name: go test
         run: go test ./... -count=1 -race
+
+      # The Dockerfile pins its own golang tag, so setup-go's go-version-file
+      # cannot catch it drifting behind go.mod. Only the builder stage runs —
+      # the final stage needs the fetched nono binary, which release.yaml does.
+      - name: docker build (builder stage)
+        run: docker build --target builder .

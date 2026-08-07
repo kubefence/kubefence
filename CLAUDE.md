@@ -18,7 +18,7 @@ The `Signed-off-by` trailer is added automatically by `git commit -s`.
 
 ## Stack
 
-- Go 1.24+, module: `github.com/k8s-nono/nono-nri`
+- Go 1.25+, module: `github.com/k8s-nono/nono-nri`
 - NRI SDK: `github.com/containerd/nri` v0.10.0
 - Tests: Ginkgo v2 + Gomega
 - Config: TOML via `github.com/pelletier/go-toml/v2` v2.2.4
@@ -92,7 +92,7 @@ is opt-in, not the other way around.
 ## Technology Stack
 
 ## Languages
-- Go 1.24.3 - NRI plugin implementation (`cmd/nono-nri`, `internal/nri`, `internal/log`)
+- Go 1.25.0 - NRI plugin implementation (`cmd/nono-nri`, `internal/nri`, `internal/log`)
 - Rust - nono binary (upstream release, fetched via `scripts/fetch-nono.sh`)
 - Bash - Deployment and build automation scripts
 ## Runtime
@@ -120,11 +120,11 @@ is opt-in, not the other way around.
 ## Configuration
 - TOML configuration file at `/etc/nri/conf.d/10-nono-nri.toml`
 - Flags at runtime:
-- `Dockerfile` - Multi-stage Alpine-based container build (1.24-alpine → alpine:3.20)
+- `Dockerfile` - Multi-stage Alpine-based container build (1.25-alpine → alpine:3.20)
 - `Makefile` - Build targets: `build`, `test`, `docker-build`, `docker-load-kind`, `kind-*`
 - `.github/workflows/` - CI/CD via GitHub Actions (lint, release, kata-extension)
 ## Platform Requirements
-- Go 1.24+ toolchain
+- Go 1.25+ toolchain
 - Docker (for `make docker-build`)
 - curl (for `make nono-fetch`)
 - Kubernetes 1.24+ with containerd 1.7.x+ or CRI-O runtime

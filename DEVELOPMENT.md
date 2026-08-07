@@ -19,7 +19,7 @@ make docker-build    # outputs nono-nri:latest
 
 | Component | Minimum version |
 |-----------|----------------|
-| Go | 1.24+ |
+| Go | 1.25+ |
 | curl | for `make nono-fetch` |
 | Docker | for `make docker-build` |
 

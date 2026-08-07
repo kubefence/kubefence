@@ -42,7 +42,7 @@ deploy/kata-extension/Dockerfile  erofs extension image carrying both; published
 deploy/daemonset.yaml             DaemonSet manifest (init + main containers)
 deploy/runtimeclass-kata.yaml     kata-nono-sandbox RuntimeClass (handler: kata-qemu-runtime-rs)
 deploy/10-nono-nri.toml.example   Annotated TOML config reference
-Dockerfile                        Multi-stage: golang:1.24-alpine builder → alpine:3.20
+Dockerfile                        Multi-stage: golang:1.25-alpine builder → alpine:3.20
 .github/workflows/release.yaml    CI: fetches the pinned nono release, builds + pushes to ghcr.io
 .github/workflows/kata-extension.yaml   CI: builds + pushes the guest extension image
 scripts/fetch-nono.sh             downloads the nolabs-ai/nono release binary at NONO_VERSION and
