@@ -6,6 +6,18 @@ were run through `genpolicy` to produce the OCI mount structures visible to
 the kata-agent, and the resulting `input.OCI.Mounts` patterns informed the
 hardened rules in `../policy.rego`.
 
+The genpolicy output is kept in `genpolicy-output/` and is executable, not just
+recorded: `make policy-test` replays `../policy.rego` over every container in
+every dump and requires each `attack-*` pod to have at least one container
+denied and every `legitimate-*` container allowed. Adding a new dump to that
+directory is enough to cover it — the expectation comes from the filename.
+
+Note that `RESULTS.md` predates the current rule. It records
+`attack-hostpath-nono-dir.yaml` reaching `Running`, because the policy then
+counted `/nono` mounts and containerd had merged the two into one. The rule now
+keys on `rbind`, which marks the mount as user-supplied, so genpolicy-verify
+shows that pod denied outright.
+
 ## Attack Manifests
 
 | Manifest | Attack vector | /nono mount options |

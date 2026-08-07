@@ -14,11 +14,16 @@ test:
 test-all:
 	go test ./... -v -count=1
 
-# OPA unit tests for the kata-agent policy.
-# Requires the opa binary: https://openpolicyagent.org/docs/latest/#running-opa
+# OPA tests for the kata-agent policy. Requires the opa binary:
+# https://openpolicyagent.org/docs/latest/#running-opa
+#
+# Two passes: policy_test.rego asserts against hand-written mount fixtures,
+# genpolicy-verify.sh replays the same policy over real genpolicy output so a
+# fixture that drifts from what kata actually emits is caught.
 policy-test:
 	opa test deploy/kata-extension/policy.rego \
 	         deploy/kata-extension/policy_test.rego -v
+	bash deploy/kata-extension/genpolicy-verify.sh
 
 clean:
 	rm -f $(BINARY)
