@@ -1,6 +1,129 @@
 # /nono/nono Replacement Attack — Live Cluster Test Results
 
-**Date:** 2026-05-05
+Two runs, newest first, both driving the six manifests in this directory against
+a live cluster. Every defence layer reproduced across a three-minor k8s jump and
+48 nono releases; the pod *phases* differ, for a reason worth reading (run 2,
+"Why the phases changed").
+
+For the static counterpart — the same policy replayed over recorded genpolicy
+output, with no cluster — see `genpolicy-output/` and `make policy-test`. The two
+answer different questions; see "Static vs live" below.
+
+---
+
+# Run 2 — 2026-08-07
+
+**Cluster:** `kubefence` kcli VM, kubeadm single-node, k8s v1.33.13,
+containerd 2.2.6, Ubuntu 24.04.4, kernel 6.8.0-136-generic
+**Runtime class:** `kata-nono-sandbox` → handler `kata-nono-qemu`
+**Policy:** hardened `policy.rego`, delivered as the erofs guest extension image
+(cold-plugged read-only virtio-blk), stock kata guest kernel and image
+**kata-deploy:** 4.0.0
+**nono-nri:** built from `d16b991`
+**nono binary:** v0.71.0
+**seccomp_profile:** `restricted`
+
+The deployed build is `d16b991`, five commits behind the HEAD this was written
+against, but the tested surface is identical: `policy.rego`, `agent-config.toml`
+and the extension `Dockerfile` are byte-for-byte the same, and `internal/nri/`
+(where `BuildAdjustment` builds the mount) is untouched. The only intervening Go
+change is an unindent in `main.go`.
+
+## Preflight — is the hardened policy actually live?
+
+Kata's default is `allow-all.rego`, under which every attack below would pass for
+the wrong reason. The discriminator is that the project's policy denies a bare
+exec but allows a wrapped one — `allow-all` permits both, and
+`allow-all-except-exec-process` denies both:
+
+```console
+$ kubectl exec policy-control -- true
+... rpc status: Status { code: PERMISSION_DENIED,
+    message: "\"ExecProcessRequest is blocked by policy: \"" }
+
+$ kubectl exec policy-control -- /nono/nono wrap --profile default -- ls -l /nono/nono
+-rwxr-xr-x 1 0 0 29848160 Aug  6 16:27 /nono/nono
+```
+
+29848160 bytes is the v0.71.0 release binary exactly, so the mount is the trusted
+one. Only then are the attack results meaningful.
+
+## Results
+
+| Manifest | Pod status | Exit | Defence layer | Mechanism |
+|---|---|---|---|---|
+| `attack-hostpath-nono-dir.yaml` | `Failed` ✓ | 1 | Layer 1 | NRI mount replacement |
+| `attack-hostpath-nono-binary.yaml` | `Failed`/`StartError` ✓ | 128 | Layer 2 | kata-agent OPA policy |
+| `attack-emptydir-initcontainer.yaml` | `Failed`/`PodInitializing` ✓ | init 1 | Layer 0 | Landlock blocks staging write |
+| `attack-configmap-binary.yaml` | `Failed` ✓ | 1 | Layer 1 | NRI mount replacement |
+| `attack-projected-secret.yaml` | `Failed` ✓ | 1 | Layer 1 | NRI mount replacement |
+| `attack-symlink-via-copy.yaml` | `Running` | — | N/A | `CopyFileRequest` not reachable via `kubectl` |
+
+All six neutralised, at the same layers as run 1.
+
+Only `attack-hostpath-nono-binary` was stopped by the policy, and the kata-agent
+said so on the pod's events:
+
+```
+Error: failed to create containerd task: failed to create shim task:
+Others("failed to handle message create container
+ Caused by:
+   0: agent create container
+   1: rpc status: Status { code: PERMISSION_DENIED, ...
+```
+
+## Why the phases changed since run 1
+
+Run 1 recorded the three Layer 1 attacks as `Running`; they are now `Failed`
+with exit 1. The defence did not change — the attacker's own command does.
+
+Each Layer 1 pod runs `sh -c '... /nono/nono --version ...'`. After injection PID 1
+is `nono wrap`, which succeeds ("Applying sandbox..."), but the inner `sh` now
+resolves through the `/nono` PATH entry to the `/nono/sh` wrapper, and re-entering
+nono from inside an active sandbox is denied:
+
+```
+  nono v0.71.0
+  Applying sandbox...
+nono: Command execution failed: Permission denied (os error 13)
+```
+
+Those wrapper scripts postdate run 1's nono v0.23.0. The load-bearing evidence is
+unchanged and visible in the same log: the attacker sees `nono v0.71.0`, the
+trusted binary, not the payload it mounted. A `Failed` phase here is the PATH
+wrapper doing its job, not an attack getting further than before.
+
+## Static vs live — they disagree, and both are right
+
+`make policy-test` replays `policy.rego` over the recorded genpolicy dumps and
+reports `attack-hostpath-nono-dir` **denied**. Live, the policy allowed that pod
+and Layer 1 handled it. Not a contradiction:
+
+- genpolicy's dump is the **pre-NRI** OCI spec, so it still contains the
+  attacker's `rbind` mount at `/nono` → the rule fires.
+- At runtime NRI appends its own `/nono` mount. Same destination, so containerd
+  merges the two and keeps NRI's, which uses `bind`, not `rbind`. No `rbind`
+  mount ever reaches the agent, so the policy allows a container whose `/nono` is
+  already trusted.
+- `attack-hostpath-nono-binary` targets `/nono/nono`, a *different* destination.
+  No merge, both mounts reach the agent, policy denies. Static and live agree.
+
+So the static check exercises the **NRI-absent or NRI-bypassed** path — exactly
+what `policy.rego`'s `rbind` rule was written for ("if the NRI plugin is
+misconfigured or absent, no `/nono` bind-mount is injected at all"). The live run
+exercises the NRI-present path. Neither subsumes the other; a regression that
+removed the `rbind` rule would stay green live and go red static.
+
+## Not verified in this run
+
+The Landlock ABI version. `nono wrap -- true` prints no Landlock line at default
+verbosity. The `Permission denied (os error 13)` above is behavioural evidence
+that Landlock is enforcing, but the version was not read.
+
+---
+
+# Run 1 — 2026-05-05
+
 **Cluster:** `ai-pg` (k8s v1.31.14, single-node)
 **Runtime class:** `kata-nono-sandbox` → handler `kata-nono-qemu`
 **Policy:** hardened `policy.rego` (now `deploy/kata-extension/policy.rego`),
@@ -106,6 +229,13 @@ container_has_extra_nono_mounts if {
 
 The kata-agent emits `CreateContainerRequest is blocked by policy` and the
 container is never created.
+
+> **Superseded.** That `count > 1` rule is not the current one — `policy.rego`
+> now keys on `rbind` in the mount options, which marks a mount as user-supplied
+> and so also catches the single-mount case where NRI is absent. The verdict for
+> this attack is unchanged (run 2 reproduced the same Layer 2 denial); only the
+> rule that produces it differs. The snippet is left as the historical record of
+> what was tested on 2026-05-05.
 
 ---
 

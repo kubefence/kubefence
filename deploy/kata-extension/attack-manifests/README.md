@@ -12,11 +12,20 @@ every dump and requires each `attack-*` pod to have at least one container
 denied and every `legitimate-*` container allowed. Adding a new dump to that
 directory is enough to cover it — the expectation comes from the filename.
 
-Note that `RESULTS.md` predates the current rule. It records
-`attack-hostpath-nono-dir.yaml` reaching `Running`, because the policy then
-counted `/nono` mounts and containerd had merged the two into one. The rule now
-keys on `rbind`, which marks the mount as user-supplied, so genpolicy-verify
-shows that pod denied outright.
+That static check and the live runs in `RESULTS.md` answer different questions,
+and will disagree on the same-destination attacks:
+
+- genpolicy dumps the **pre-NRI** OCI spec, so the attacker's `rbind` mount at
+  `/nono` is still present and `CreateContainerRequest` denies it. This is the
+  NRI-absent or NRI-bypassed case, which is what the `rbind` rule exists for.
+- Live, NRI appends its own `/nono` mount and containerd merges the two by
+  destination, keeping NRI's non-recursive `bind`. No `rbind` mount reaches the
+  agent, the policy allows the container, and the attack is already dead because
+  `/nono` is the trusted directory.
+
+Attacks targeting `/nono/nono` — a different destination, so no merge — are
+denied in both. A regression that dropped the `rbind` rule would stay green live
+and go red static, which is the point of keeping both.
 
 ## Attack Manifests
 
