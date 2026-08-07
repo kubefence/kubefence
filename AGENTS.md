@@ -39,7 +39,7 @@ deploy/kind/cluster-containerd.yaml   Kind cluster config with NRI enabled
 deploy/kata-extension/policy.rego     Hardened kata-agent OPA policy — guest-side enforcement
 deploy/kata-extension/agent-config.toml   Agent config selecting that policy (agent.config_file)
 deploy/kata-extension/Dockerfile  erofs extension image carrying both; published, not kind-only
-deploy/daemonset.yaml             DaemonSet manifest (init + main containers)
+deploy/helm/kubefence/            The install path: DaemonSets, RuntimeClasses, config
 deploy/runtimeclass-kata.yaml     kata-nono-sandbox RuntimeClass (handler: kata-qemu-runtime-rs)
 deploy/10-nono-nri.toml.example   Annotated TOML config reference
 Dockerfile                        Multi-stage: golang:1.25-alpine builder → alpine:3.20
